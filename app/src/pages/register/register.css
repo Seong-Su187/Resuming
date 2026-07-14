@@ -1,11 +1,24 @@
 /* register.css */
+.page {
+    background-image: url('/assets/login-bg.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
 .register-card {
+    position: relative;
+    z-index: 2;
+
     width: 100%;
     max-width: 400px;
     padding: 40px;
     border-radius: 16px;
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.94);
     box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
 }
 
 .register-card h1 {

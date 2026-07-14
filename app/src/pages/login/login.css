@@ -1,11 +1,134 @@
 /* login.css */
+.page {
+    position: relative;
+    isolation: isolate;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 100vw;
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: hidden;
+
+    background-image: url('/assets/login-bg.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+/* 말풍선이 지나가는 전체 영역 */
+.worry-bubbles {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+
+    overflow: hidden;
+    pointer-events: none;
+}
+
+/* 개별 말풍선 */
+.worry-bubble {
+    position: absolute;
+    left: var(--bubble-left);
+    bottom: -180px;
+
+    width: max-content;
+    max-width: 240px;
+    padding: 18px 24px;
+
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    border-radius: 50%;
+
+    background: rgba(255, 255, 255, 0.56);
+    box-shadow:
+        0 10px 35px rgba(53, 74, 110, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.8);
+
+    color: rgba(55, 65, 81, 0.76);
+    font-size: 15px;
+    font-weight: 500;
+    line-height: 1.65;
+    text-align: center;
+    word-break: keep-all;
+
+    opacity: 0;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+
+    transform: translateX(-50%) scale(var(--bubble-scale));
+
+    animation-name: bubble-rise;
+    animation-duration: var(--bubble-duration);
+    animation-delay: var(--bubble-delay);
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+}
+
+/* 말풍선 꼬리 */
+.worry-bubble::after {
+    content: '';
+
+    position: absolute;
+    right: 30px;
+    bottom: -12px;
+
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+
+    background: rgba(255, 255, 255, 0.56);
+
+    box-shadow:
+        8px 15px 0 -3px rgba(255, 255, 255, 0.56),
+        10px 27px 0 -5px rgba(255, 255, 255, 0.56);
+}
+
+/* 로그인 카드는 말풍선보다 위 */
 .login-card {
+    position: relative;
+    z-index: 2;
+
     width: 100%;
     max-width: 400px;
     padding: 40px;
     border-radius: 16px;
-    background-color: #ffffff;
+    background-color: rgba(255, 255, 255, 0.94);
     box-shadow: 0 12px 30px rgba(15, 23, 42, 0.1);
+
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+@keyframes bubble-rise {
+    0% {
+        opacity: 0;
+        transform:
+            translate(-50%, 0) scale(var(--bubble-scale));
+    }
+
+    10% {
+        opacity: 0.78;
+    }
+
+    45% {
+        transform:
+            translate(calc(-50% + var(--bubble-drift)),
+                -55vh) scale(var(--bubble-scale));
+    }
+
+    85% {
+        opacity: 0.65;
+    }
+
+    100% {
+        opacity: 0;
+        transform:
+            translate(calc(-50% - var(--bubble-drift)),
+                -125vh) scale(var(--bubble-scale));
+    }
 }
 
 .login-card h1 {
