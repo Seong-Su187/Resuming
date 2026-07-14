@@ -1,0 +1,21 @@
+/* start.css */
+.start-video {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: cover;
+    padding: 0;
+    margin: 0;
+
+    /* 왼쪽은 고정하고 넘치는 오른쪽 부분만 잘리게 */
+    object-position: left center;
+}
+
+.video-loading {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+}
