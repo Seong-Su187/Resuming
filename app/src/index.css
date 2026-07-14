@@ -18,3 +18,24 @@ body {
   align-items: center;
   min-height: 100vh;
 }
+
+.h1 {
+  margin: 0;
+  color: #111827;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 32px;
+  line-height: 1;
+}
+
+.logo-image {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
