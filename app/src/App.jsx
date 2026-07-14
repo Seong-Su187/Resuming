@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
 import Login from './pages/login/login';
+import Register from './pages/register/register';
 import Start from './pages/start/start';
 import Main from './pages/main/main';
 
@@ -43,6 +44,7 @@ function App() {
     <Router>
       <Routes>
         <Route path="/" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route
           path="/start"
           element={<Start startVideoUrl={startVideoUrl} />}
