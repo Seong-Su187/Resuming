@@ -24,7 +24,7 @@ function Start({ startVideoUrl }) {
                 onLoadedMetadata={(event) => {
                     event.currentTarget.volume = 0.1;
                 }}
-                onEnded={() => navigate('/main', { replace: true })}
+                onEnded={() => navigate('/interview', { replace: true })}
             />
         </main>
     );

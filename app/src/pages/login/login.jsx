@@ -90,7 +90,7 @@ function Login() {
             localStorage.setItem('username', data.user.username);
             localStorage.setItem('fullName', data.user.full_name);
 
-            navigate('/start', { replace: true });
+            navigate('/', { replace: true });
         } catch (error) {
             console.error('로그인 오류:', error);
 
