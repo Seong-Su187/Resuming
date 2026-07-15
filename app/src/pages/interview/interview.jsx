@@ -10,21 +10,28 @@ function Interview() {
 
     const fileInputRef = useRef(null);
     const chatEndRef = useRef(null);
-    const recordingTimerRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
+
+    const baselineRecorderRef = useRef(null);
+    const baselineStreamRef = useRef(null);
+    const baselineChunksRef = useRef([]);
+    const baselineIntervalRef = useRef(null);
+    const baselineAudioUrlRef = useRef(null);
+    const baselineAudioRef = useRef(null);
+
+    const answerRecorderRef = useRef(null);
+    const answerStreamRef = useRef(null);
+    const answerChunksRef = useRef([]);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
     const [sessionId, setSessionId] = useState('');
     const [resumeName, setResumeName] = useState('');
-
     const [questionIndex, setQuestionIndex] = useState(0);
     const [totalQuestions, setTotalQuestions] = useState(0);
-
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
-
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
 
@@ -32,26 +39,15 @@ function Interview() {
     const [answerMode, setAnswerMode] = useState('voice');
     const [answerText, setAnswerText] = useState('');
 
-    const baselineRecorderRef = useRef(null);
-    const baselineStreamRef = useRef(null);
-    const baselineChunksRef = useRef([]);
-    const baselineIntervalRef = useRef(null);
-
     const [isBaselineRecording, setIsBaselineRecording] = useState(false);
     const [isBaselineSaving, setIsBaselineSaving] = useState(false);
     const [baselineSeconds, setBaselineSeconds] = useState(0);
-
     const [hasExistingBaseline, setHasExistingBaseline] = useState(false);
     const [isBaselineChecking, setIsBaselineChecking] = useState(false);
     const [existingBaselineMetrics, setExistingBaselineMetrics] = useState(null);
-
-    const baselineAudioUrlRef = useRef(null);
-
     const [pendingBaselineBlob, setPendingBaselineBlob] = useState(null);
     const [baselineAudioUrl, setBaselineAudioUrl] = useState('');
     const [isBaselinePreview, setIsBaselinePreview] = useState(false);
-
-    const baselineAudioRef = useRef(null);
 
     const baselineGuideText = `
         안녕하세요. 지금부터 기본 음성 등록을 시작하겠습니다.
@@ -856,14 +852,7 @@ function Interview() {
         };
     };
 
-    /*
-     * 6. 답변 녹음 버튼
-     *
-     * 아직 실제 녹음 기능은 연결하지 않고,
-     * 녹음 UI를 2초간 표시한 후
-     * 백엔드에 submit_answer 신호만 보냅니다.
-     */
-    const handleRecordAnswer = () => {
+    const startAnswerRecording = async () => {
         if (step !== 'answer' || isRecordingAnswer) {
             return;
         }
@@ -881,28 +870,242 @@ function Interview() {
             return;
         }
 
-        setIsRecordingAnswer(true);
-
-        websocket.send(
-            JSON.stringify({
-                type: 'voice_chunk',
-            }),
-        );
-
-        recordingTimerRef.current = setTimeout(() => {
+        if (!navigator.mediaDevices?.getUserMedia) {
             addMessage(
-                'user',
-                '음성 답변이 제출되었습니다.',
+                'system',
+                '현재 브라우저에서는 음성 녹음을 지원하지 않습니다.',
+            );
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    echoCancellation: true,
+                    noiseSuppression: true,
+                    autoGainControl: true,
+                },
+            });
+
+            answerStreamRef.current = stream;
+            answerChunksRef.current = [];
+
+            let mimeType = '';
+
+            if (
+                MediaRecorder.isTypeSupported(
+                    'audio/webm;codecs=opus',
+                )
+            ) {
+                mimeType = 'audio/webm;codecs=opus';
+            } else if (
+                MediaRecorder.isTypeSupported('audio/webm')
+            ) {
+                mimeType = 'audio/webm';
+            }
+
+            const recorder = mimeType
+                ? new MediaRecorder(stream, { mimeType })
+                : new MediaRecorder(stream);
+
+            answerRecorderRef.current = recorder;
+
+            recorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    answerChunksRef.current.push(event.data);
+                }
+            };
+
+            recorder.onerror = (event) => {
+                console.error('답변 녹음 오류:', event);
+
+                addMessage(
+                    'system',
+                    '답변을 녹음하는 중 오류가 발생했습니다.',
+                );
+            };
+
+            /*
+             * 사용자가 종료 버튼을 누르기 전까지 계속 녹음합니다.
+             * 1초마다 녹음 데이터를 chunk로 확보합니다.
+             */
+            recorder.start(1000);
+
+            setIsRecordingAnswer(true);
+        } catch (error) {
+            console.error('답변 녹음 시작 오류:', error);
+
+            if (error.name === 'NotAllowedError') {
+                addMessage(
+                    'system',
+                    '마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.',
+                );
+            } else if (error.name === 'NotFoundError') {
+                addMessage(
+                    'system',
+                    '사용할 수 있는 마이크를 찾지 못했습니다.',
+                );
+            } else {
+                addMessage(
+                    'system',
+                    '답변 녹음을 시작하지 못했습니다.',
+                );
+            }
+        }
+    };
+
+    const stopAnswerRecording = async () => {
+        const recorder = answerRecorderRef.current;
+
+        if (
+            !recorder ||
+            recorder.state === 'inactive' ||
+            !isRecordingAnswer
+        ) {
+            return;
+        }
+
+        setIsRecordingAnswer(false);
+
+        try {
+            const audioBlob = await new Promise(
+                (resolve, reject) => {
+                    recorder.onstop = () => {
+                        const blob = new Blob(
+                            answerChunksRef.current,
+                            {
+                                type:
+                                    recorder.mimeType ||
+                                    'audio/webm',
+                            },
+                        );
+
+                        if (blob.size === 0) {
+                            reject(
+                                new Error(
+                                    '녹음된 답변이 없습니다.',
+                                ),
+                            );
+                            return;
+                        }
+
+                        resolve(blob);
+                    };
+
+                    recorder.onerror = () => {
+                        reject(
+                            new Error(
+                                '답변 녹음 파일 생성에 실패했습니다.',
+                            ),
+                        );
+                    };
+
+                    /*
+                     * 마지막 남은 녹음 데이터를 먼저 요청한 후 종료합니다.
+                     */
+                    recorder.requestData();
+                    recorder.stop();
+                },
             );
 
+            answerStreamRef.current
+                ?.getTracks()
+                .forEach((track) => track.stop());
+
+            answerStreamRef.current = null;
+            answerRecorderRef.current = null;
+            answerChunksRef.current = [];
+
+            addMessage(
+                'system',
+                '답변 음성을 분석하고 있습니다.',
+            );
+
+            const formData = new FormData();
+
+            formData.append('user_id', userId);
+            formData.append(
+                'audio_file',
+                audioBlob,
+                'interview_answer.webm',
+            );
+
+            const response = await fetch(
+                `${API_BASE_URL}/interviews/${sessionId}/process-audio`,
+                {
+                    method: 'POST',
+                    body: formData,
+                },
+            );
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(
+                    data.detail ||
+                    '답변 음성 분석에 실패했습니다.',
+                );
+            }
+
+            const transcribedText =
+                data.transcribed_text?.trim();
+
+            if (!transcribedText) {
+                throw new Error(
+                    '답변 음성을 인식하지 못했습니다.',
+                );
+            }
+
+            /*
+             * 오른쪽 채팅창에 실제 STT 결과 표시
+             */
+            addMessage('user', transcribedText);
+
+            const websocket = websocketRef.current;
+
+            if (
+                !websocket ||
+                websocket.readyState !== WebSocket.OPEN
+            ) {
+                throw new Error(
+                    '면접 서버 연결이 끊어졌습니다.',
+                );
+            }
+
+            /*
+             * STT 결과와 음성 분석 결과를
+             * WebSocket 평가 로직으로 전달
+             */
             websocket.send(
                 JSON.stringify({
                     type: 'submit_answer',
+                    transcribed_text: transcribedText,
+                    jitter_shaken_percentage:
+                        data.jitter_shaken_percentage ?? 0,
+                    shimmer_shaken_percentage:
+                        data.shimmer_shaken_percentage ?? 0,
+                    speed_difference_wpm:
+                        data.speed_difference_wpm ?? 0,
                 }),
             );
+        } catch (error) {
+            console.error('답변 녹음 종료 오류:', error);
 
+            addMessage(
+                'system',
+                error.message ||
+                '답변 음성을 처리하는 중 오류가 발생했습니다.',
+            );
+
+            answerStreamRef.current
+                ?.getTracks()
+                .forEach((track) => track.stop());
+
+            answerStreamRef.current = null;
+            answerRecorderRef.current = null;
+            answerChunksRef.current = [];
             setIsRecordingAnswer(false);
-        }, 2000);
+        }
     };
 
     /*
@@ -1226,15 +1429,18 @@ function Interview() {
                             type="button"
                             className={`interview-action-button answer-button voice-answer-button ${isRecordingAnswer ? 'recording' : ''
                                 }`}
-                            onClick={handleRecordAnswer}
-                            disabled={isRecordingAnswer}
+                            onClick={
+                                isRecordingAnswer
+                                    ? stopAnswerRecording
+                                    : startAnswerRecording
+                            }
                         >
                             <span className="action-icon">
-                                {isRecordingAnswer ? '●' : '🎙'}
+                                {isRecordingAnswer ? '■' : '🎙'}
                             </span>
 
                             {isRecordingAnswer
-                                ? '답변 녹음 중...'
+                                ? '답변 녹음 종료'
                                 : '답변 녹음 시작'}
                         </button>
                     )}
@@ -1301,9 +1507,20 @@ function Interview() {
     // 컴포넌트 종료 시 타이머 및 WebSocket 정리     
     useEffect(() => {
         return () => {
-            if (recordingTimerRef.current) {
-                clearTimeout(recordingTimerRef.current);
+            if (
+                answerRecorderRef.current &&
+                answerRecorderRef.current.state !== 'inactive'
+            ) {
+                answerRecorderRef.current.stop();
             }
+
+            answerStreamRef.current
+                ?.getTracks()
+                .forEach((track) => track.stop());
+
+            answerRecorderRef.current = null;
+            answerStreamRef.current = null;
+            answerChunksRef.current = [];
 
             if (baselineIntervalRef.current) {
                 clearInterval(baselineIntervalRef.current);
@@ -1421,7 +1638,7 @@ function Interview() {
 
                                 <p>
                                     {isRecordingAnswer
-                                        ? '답변을 말씀해주세요. 음성이 자동으로 인식됩니다.'
+                                        ? '답변을 모두 말씀한 후 답변 녹음 종료 버튼을 눌러주세요.'
                                         : '버튼을 누른 후 면접 질문에 답변해주세요.'}
                                 </p>
                             </div>
@@ -1528,7 +1745,7 @@ function Interview() {
                             <div className="chat-message system">
                                 <div className="message-bubble recording-message">
                                     <span className="recording-dot" />
-                                    음성을 인식하고 있습니다...
+                                    답변을 녹음하고 있습니다...
                                 </div>
                             </div>
                         )}
