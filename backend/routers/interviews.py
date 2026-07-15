@@ -1,12 +1,21 @@
 import io
 import json
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File
+import os
+import uuid
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from PyPDF2 import PdfReader
 from schemas import SessionCreateRequest
 from database import get_db
-from llm import generate_resume_based_questions
+from audio_analyzer import extract_voice_metrics, calculate_delta
+from llm import (
+    generate_resume_based_questions, 
+    evaluate_answer_with_llm, 
+    process_audio_to_text,
+    generate_text_to_speech
+)
 
 router = APIRouter(
     prefix="/interviews",
@@ -37,6 +46,7 @@ def create_interview_session(data: SessionCreateRequest, db: Session = Depends(g
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"인터뷰 세션 데이터베이스 셋업 실패: {str(e)}")
+
 
 @router.post("/{session_id}/upload-resume")
 async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -73,7 +83,7 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
         """)
         db.execute(update_query, {
             "resume_text": resume_text,
-            "questions": json.dumps(generated_questions), # 배열을 JSONB 문자열로 변환
+            "questions": json.dumps(generated_questions),
             "id": session_id
         })
         db.commit()
@@ -87,96 +97,10 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
         db.rollback()
         raise HTTPException(status_code=500, detail=f"이력서 처리 중 오류 발생: {str(e)}")
 
-@router.websocket("/ws/{session_id}")
-async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db: Session = Depends(get_db)):
-    """실시간 오디오 수신 및 질문을 하나씩 순차적으로 던지는 웹소켓 라우트"""
-    await websocket.accept()
-    
-    # DB에서 세션에 저장된 5개의 질문 리스트를 불러옴
-    query = text("SELECT questions FROM interview_sessions WHERE id = :id")
-    result = db.execute(query, {"id": session_id}).fetchone()
-    
-    if not result or not result[0]:
-        await websocket.send_json({"type": "error", "message": "질문 리스트가 생성되지 않았습니다. 이력서 업로드를 선행해주세요."})
-        await websocket.close()
-        return
-
-    questions_list = result[0]
-    total_questions = len(questions_list)
-    current_index = 0
-
-    try:
-        # 최초 연결 승인 시 상태 플래그 송출
-        await websocket.send_json({
-            "type": "connection_established",
-            "session_id": session_id,
-            "message": "데스크톱 마이크 입력 파이프라인 실시간 연결에 성공하였습니다."
-        })
-        
-        while True:
-            # 클라이언트로부터 명령 대기
-            data = await websocket.receive_json()
-            message_type = data.get("type")
-            
-            if message_type == "start_interview":
-                # 면접 시작 명령을 받으면 첫 번째 질문 전송
-                await websocket.send_json({
-                    "type": "next_question",
-                    "current_index": current_index + 1,
-                    "total_questions": total_questions,
-                    "question_text": questions_list[current_index]
-                })
-
-            elif message_type == "voice_chunk":
-                # 마이크 오디오 입력 신호 분석 (긴장도)
-                await websocket.send_json({
-                    "type": "audio_analysis_status",
-                    "status": "processing",
-                    "current_jitter": 0.014,
-                    "current_shimmer": 0.038
-                })
-                
-            elif message_type == "submit_answer":
-                # 1. 사용자의 답변을 수신받아 채점 및 피드백 전송
-                await websocket.send_json({
-                    "type": "qa_feedback",
-                    "question": questions_list[current_index],
-                    "score": 88,
-                    "jitter_shaken_percentage": 14.2,
-                    "shimmer_shaken_percentage": 9.5,
-                    "feedback": "지원자님의 해당 경험이 이력서 내용과 잘 부합하게 설명되었습니다. 좋은 답변입니다."
-                })
-                
-                # 2. 질문 인덱스 증가 및 다음 질문 전송
-                current_index += 1
-                
-                if current_index < total_questions:
-                    # 다음 질문이 남아있을 경우 전송
-                    await websocket.send_json({
-                        "type": "next_question",
-                        "current_index": current_index + 1,
-                        "total_questions": total_questions,
-                        "question_text": questions_list[current_index]
-                    })
-                else:
-                    # 5개의 질문이 모두 끝난 경우 종료 신호 전송
-                    await websocket.send_json({
-                        "type": "interview_completed",
-                        "message": "모든 면접 질문이 종료되었습니다. 수고하셨습니다."
-                    })
-                
-    except WebSocketDisconnect:
-        print(f"세션 {session_id} 브라우저 연결 종료")
-    except Exception as e:
-        await websocket.send_json({
-            "type": "error",
-            "message": f"웹소켓 채널 트래픽 오류 발생: {str(e)}"
-        })
 
 @router.get("/resume/{user_id}")
 def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
     """사용자가 이전에 등록한 최근 이력서 조회"""
-
     try:
         query = text("""
             SELECT resume_text
@@ -211,7 +135,8 @@ def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
             status_code=500,
             detail=f"기존 이력서 조회 중 오류 발생: {str(e)}"
         )
-    
+
+
 @router.post("/{session_id}/use-existing-resume")
 def use_existing_resume(
     session_id: str,
@@ -219,7 +144,6 @@ def use_existing_resume(
     db: Session = Depends(get_db)
 ):
     """사용자의 최근 이력서를 현재 면접 세션에서 재사용"""
-
     try:
         resume_query = text("""
             SELECT resume_text
@@ -295,11 +219,236 @@ def use_existing_resume(
     except HTTPException:
         db.rollback()
         raise
-
     except Exception as e:
         db.rollback()
-
         raise HTTPException(
             status_code=500,
             detail=f"기존 이력서 사용 중 오류 발생: {str(e)}"
         )
+
+
+@router.post("/{session_id}/process-audio")
+async def process_interview_audio(
+    session_id: str,
+    user_id: str = Form(...),
+    audio_file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """면접관 질문에 대한 사용자 답변 오디오를 받아 STT 및 평음 대조 떨림 분석"""
+    temp_path = f"temp_answer_{uuid.uuid4()}.webm"
+    try:
+        with open(temp_path, "wb") as buffer:
+            buffer.write(await audio_file.read())
+            
+        transcribed_text = process_audio_to_text(temp_path)
+        current_metrics = extract_voice_metrics(temp_path, transcribed_text)
+        
+        profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = :user_id")
+        profile = db.execute(profile_query, {"user_id": user_id}).fetchone()
+        
+        if not profile:
+            raise HTTPException(status_code=404, detail="유저 평음 데이터 없음")
+            
+        base_jitter, base_shimmer, base_wpm = profile[0], profile[1], profile[2]
+        
+        delta_jitter = calculate_delta(base_jitter, current_metrics["jitter"])
+        delta_shimmer = calculate_delta(base_shimmer, current_metrics["shimmer"])
+        delta_wpm = current_metrics["wpm"] - base_wpm
+        
+        return {
+            "status": "success",
+            "transcribed_text": transcribed_text,
+            "jitter_shaken_percentage": delta_jitter,
+            "shimmer_shaken_percentage": delta_shimmer,
+            "speed_difference_wpm": delta_wpm
+        }
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+@router.post("/tts")
+async def text_to_speech(text_payload: dict):
+    """텍스트를 받아 음성 파일(mp3)로 반환"""
+    text = text_payload.get("text", "")
+    temp_path = f"temp_tts_{uuid.uuid4()}.mp3"
+    try:
+        output_file = generate_text_to_speech(text, temp_path)
+        return FileResponse(output_file, media_type="audio/mpeg", filename="avatar.mp3")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{session_id}/result")
+def get_interview_results(session_id: str, db: Session = Depends(get_db)):
+    """최종 결과 조회 및 과거 면접 기록과 비교한 성장 추이 반환"""
+    try:
+        # 1. 현재 세션 정보 조회
+        session_query = text("SELECT user_id, overall_score, overall_feedback, created_at FROM interview_sessions WHERE id = :id")
+        current_session = db.execute(session_query, {"id": session_id}).fetchone()
+        
+        if not current_session:
+            raise HTTPException(status_code=404, detail="결과를 찾을 수 없습니다.")
+            
+        user_id = current_session[0]
+        curr_score = current_session[1]
+        curr_feedback = current_session[2]
+        curr_date = current_session[3]
+
+        # 2. 현재 세션의 상세 로그 조회
+        logs = db.execute(
+            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage FROM qa_logs WHERE session_id = :s ORDER BY created_at ASC"), 
+            {"s": session_id}
+        ).fetchall()
+        
+        details = []
+        for r in logs:
+            details.append({
+                "question": r[0], "user_answer": r[1], "score": r[2], "feedback": r[3],
+                "jitter_delta": r[4], "shimmer_delta": r[5]
+            })
+
+        # 3. 유저의 과거 면접 기록 전체 조회 (트렌드 분석)
+        history_query = text("""
+            SELECT id, overall_score, created_at 
+            FROM interview_sessions 
+            WHERE user_id = :uid AND overall_score IS NOT NULL AND created_at <= :curr_date
+            ORDER BY created_at ASC
+        """)
+        history_sessions = db.execute(history_query, {"uid": user_id, "curr_date": curr_date}).fetchall()
+        
+        trend_data = []
+        for hs in history_sessions:
+            hs_id = hs[0]
+            
+            # 해당 과거 세션의 평균 떨림 수치 계산
+            past_logs = db.execute(
+                text("SELECT AVG(jitter_shaken_percentage), AVG(shimmer_shaken_percentage) FROM qa_logs WHERE session_id = :hs_id"), 
+                {"hs_id": hs_id}
+            ).fetchone()
+            
+            p_jitter = past_logs[0] if past_logs and past_logs[0] is not None else 0
+            p_shimmer = past_logs[1] if past_logs and past_logs[1] is not None else 0
+            
+            trend_data.append({
+                "session_id": str(hs_id),
+                "date": hs[2].strftime("%Y-%m-%d %H:%M"),
+                "score": hs[1],
+                "avg_jitter_shaken": round(float(p_jitter), 2),
+                "avg_shimmer_shaken": round(float(p_shimmer), 2)
+            })
+            
+        # 4. 직전 대비 개선도 (Improvement) 계산 및 다이내믹 메시지 생성
+        improvement = {
+            "score_diff": 0,
+            "jitter_diff": 0,
+            "message": "첫 면접 완료를 축하합니다! 부족했던 부분을 확인하고 성장을 준비하세요."
+        }
+        
+        if len(trend_data) >= 2:
+            prev = trend_data[-2] # 직전 세션
+            curr = trend_data[-1] # 현재 세션
+            
+            score_diff = curr["score"] - prev["score"]
+            jitter_diff = curr["avg_jitter_shaken"] - prev["avg_jitter_shaken"]
+            
+            improvement["score_diff"] = score_diff
+            improvement["jitter_diff"] = round(jitter_diff, 2)
+            
+            if score_diff > 0 and jitter_diff < 0:
+                improvement["message"] = f"놀라운 성장입니다! 직전 면접보다 답변 점수는 {score_diff}점 오르고, 목소리 떨림은 {abs(round(jitter_diff, 1))}% 감소해 완벽히 안정된 모습을 보여주셨습니다."
+            elif score_diff > 0:
+                improvement["message"] = f"좋습니다! 이전보다 답변 수준이 {score_diff}점 상승했습니다. 다음엔 긴장만 조금 더 풀어보세요."
+            elif jitter_diff < 0:
+                improvement["message"] = f"답변 점수는 아쉽지만, 목소리 떨림이 이전보다 {abs(round(jitter_diff, 1))}%나 줄어 훨씬 차분한 인상을 주었습니다!"
+            else:
+                improvement["message"] = "이번 면접에서는 조금 긴장하셨던 것 같아요. 피드백을 확인하고 다음을 준비해 봅시다!"
+
+        return {
+            "status": "success",
+            "overall_score": curr_score,
+            "overall_feedback": curr_feedback,
+            "details": details,
+            "trend_data": trend_data,
+            "improvement": improvement
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.websocket("/ws/{session_id}")
+async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db: Session = Depends(get_db)):
+    """실시간 웹소켓 면접 제어"""
+    await websocket.accept()
+    
+    result = db.execute(text("SELECT questions, job_category FROM interview_sessions WHERE id = :id"), {"id": session_id}).fetchone()
+    if not result:
+        await websocket.close()
+        return
+
+    questions_list = result[0]
+    job_category = result[1]
+    total_questions = len(questions_list)
+    current_index = 0
+    accumulated_score = 0
+
+    try:
+        await websocket.send_json({"type": "connection_established"})
+        
+        while True:
+            data = await websocket.receive_json()
+            message_type = data.get("type")
+            
+            if message_type == "start_interview":
+                await websocket.send_json({
+                    "type": "next_question",
+                    "current_index": current_index + 1,
+                    "question_text": questions_list[current_index]
+                })
+
+            elif message_type == "submit_answer":
+                user_text = data.get("transcribed_text", "")
+                jitter_delta = data.get("jitter_shaken_percentage", 0.0)
+                shimmer_delta = data.get("shimmer_shaken_percentage", 0.0)
+                wpm_delta = data.get("speed_difference_wpm", 0.0)
+                
+                current_question = questions_list[current_index]
+
+                rag_result = db.execute(text("SELECT ideal_answer FROM interview_rag_store WHERE job_category = :job LIMIT 1"), {"job": job_category}).fetchone()
+                ideal_answer = rag_result[0] if rag_result else ""
+
+                evaluation = evaluate_answer_with_llm(current_question, user_text, ideal_answer)
+                earned_score, feedback_text = evaluation.get("score", 0), evaluation.get("feedback", "오류")
+                accumulated_score += earned_score
+
+                log_query = text("""
+                    INSERT INTO qa_logs (session_id, question, transcribed_text, 
+                                         jitter_shaken_percentage, shimmer_shaken_percentage, 
+                                         speed_difference_wpm, score, feedback)
+                    VALUES (:session_id, :question, :transcribed_text, 
+                            :jitter, :shimmer, :wpm, :score, :feedback)
+                """)
+                db.execute(log_query, {
+                    "session_id": session_id, "question": current_question, "transcribed_text": user_text,
+                    "jitter": jitter_delta, "shimmer": shimmer_delta, "wpm": wpm_delta,
+                    "score": earned_score, "feedback": feedback_text
+                })
+                db.commit()
+
+                await websocket.send_json({
+                    "type": "qa_feedback", "question": current_question, "score": earned_score, "feedback": feedback_text
+                })
+                
+                current_index += 1
+                if current_index < total_questions:
+                    await websocket.send_json({
+                        "type": "next_question", "current_index": current_index + 1, "question_text": questions_list[current_index]
+                    })
+                else:
+                    final_avg_score = int(accumulated_score / total_questions)
+                    db.execute(text("UPDATE interview_sessions SET overall_score = :score WHERE id = :id"), {"score": final_avg_score, "id": session_id})
+                    db.commit()
+                    await websocket.send_json({"type": "interview_completed"})
+                
+    except WebSocketDisconnect:
+        print("연결 종료")
