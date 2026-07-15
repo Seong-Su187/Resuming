@@ -172,3 +172,134 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
             "type": "error",
             "message": f"웹소켓 채널 트래픽 오류 발생: {str(e)}"
         })
+
+@router.get("/resume/{user_id}")
+def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
+    """사용자가 이전에 등록한 최근 이력서 조회"""
+
+    try:
+        query = text("""
+            SELECT resume_text
+            FROM interview_sessions
+            WHERE user_id = :user_id
+              AND resume_text IS NOT NULL
+              AND resume_text != ''
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+
+        result = db.execute(
+            query,
+            {"user_id": user_id}
+        ).fetchone()
+
+        if not result:
+            return {
+                "status": "success",
+                "has_resume": False,
+                "resume_text": None
+            }
+
+        return {
+            "status": "success",
+            "has_resume": True,
+            "resume_text": result[0]
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"기존 이력서 조회 중 오류 발생: {str(e)}"
+        )
+    
+@router.post("/{session_id}/use-existing-resume")
+def use_existing_resume(
+    session_id: str,
+    user_id: str,
+    db: Session = Depends(get_db)
+):
+    """사용자의 최근 이력서를 현재 면접 세션에서 재사용"""
+
+    try:
+        resume_query = text("""
+            SELECT resume_text
+            FROM interview_sessions
+            WHERE user_id = :user_id
+              AND resume_text IS NOT NULL
+              AND resume_text != ''
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+
+        resume_result = db.execute(
+            resume_query,
+            {"user_id": user_id}
+        ).fetchone()
+
+        if not resume_result:
+            raise HTTPException(
+                status_code=404,
+                detail="기존에 등록한 이력서가 없습니다."
+            )
+
+        resume_text = resume_result[0]
+
+        session_query = text("""
+            SELECT job_category
+            FROM interview_sessions
+            WHERE id = :session_id
+        """)
+
+        session_result = db.execute(
+            session_query,
+            {"session_id": session_id}
+        ).fetchone()
+
+        if not session_result:
+            raise HTTPException(
+                status_code=404,
+                detail="면접 세션을 찾을 수 없습니다."
+            )
+
+        job_category = session_result[0]
+
+        generated_questions = generate_resume_based_questions(
+            job_category,
+            resume_text
+        )
+
+        update_query = text("""
+            UPDATE interview_sessions
+            SET resume_text = :resume_text,
+                questions = :questions
+            WHERE id = :session_id
+        """)
+
+        db.execute(
+            update_query,
+            {
+                "resume_text": resume_text,
+                "questions": json.dumps(generated_questions),
+                "session_id": session_id
+            }
+        )
+
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "기존 이력서로 면접 질문을 생성했습니다.",
+            "question_count": len(generated_questions)
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as e:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"기존 이력서 사용 중 오류 발생: {str(e)}"
+        )

@@ -147,8 +147,197 @@
     background: linear-gradient(135deg, #5576ff, #3e57cf);
 }
 
+.resume-choice-area {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+}
+
+.existing-resume-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+
+    width: 100%;
+    padding: 16px 18px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+
+    color: #ffffff;
+    background: rgba(10, 13, 21, 0.72);
+    backdrop-filter: blur(12px);
+}
+
+.existing-resume-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+
+    border-radius: 12px;
+
+    font-size: 23px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.existing-resume-card>div {
+    min-width: 0;
+}
+
+.existing-resume-card strong {
+    display: block;
+    margin-bottom: 5px;
+
+    font-size: 15px;
+}
+
+.existing-resume-card p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.resume-choice-buttons {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.resume-choice-buttons .interview-action-button {
+    flex: 1;
+    width: auto;
+}
+
+.resume-change-button {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    background: rgba(10, 13, 21, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.resume-change-button:hover:not(:disabled) {
+    background: rgba(30, 36, 50, 0.9);
+}
+
 .answer-button {
     background: linear-gradient(135deg, #7457f5, #5838cf);
+}
+
+.answer-action-area {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    width: 100%;
+}
+
+.answer-mode-buttons {
+    display: flex;
+    gap: 8px;
+    width: 100%;
+}
+
+.answer-mode-button {
+    flex: 1;
+    height: 42px;
+
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+
+    color: rgba(255, 255, 255, 0.65);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+
+    background: rgba(10, 13, 21, 0.68);
+    cursor: pointer;
+}
+
+.answer-mode-button.active {
+    border-color: #8067ef;
+    color: #ffffff;
+    background: rgba(98, 70, 217, 0.8);
+}
+
+.answer-mode-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+/* 음성 모드에서는 버튼을 크게 표시 */
+.voice-answer-button {
+    min-height: 76px;
+    font-size: 18px;
+    border-radius: 20px;
+}
+
+/* 텍스트 모드에서는 입력창 왼쪽, 버튼 오른쪽 */
+.text-answer-row {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+}
+
+.answer-textarea {
+    flex: 1;
+    min-width: 0;
+    min-height: 76px;
+    padding: 14px 16px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+    outline: none;
+    resize: none;
+
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 15px;
+    line-height: 1.5;
+
+    background: rgba(10, 13, 21, 0.76);
+    backdrop-filter: blur(14px);
+}
+
+.answer-textarea::placeholder {
+    color: rgba(255, 255, 255, 0.55);
+}
+
+.answer-textarea:focus {
+    border-color: #7457f5;
+}
+
+.answer-submit-button {
+    flex: 0 0 120px;
+    min-height: 76px;
+
+    border: 0;
+    border-radius: 16px;
+
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 700;
+
+    background: linear-gradient(135deg, #7457f5, #5838cf);
+    cursor: pointer;
+}
+
+.answer-submit-button:hover:not(:disabled) {
+    transform: translateY(-2px);
+}
+
+.answer-submit-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
 }
 
 .complete-button {
@@ -493,4 +682,71 @@
         transform: scale(1);
         opacity: 1;
     }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+/* 개발 중 사용하는 임시 답변 모드 전환 버튼 */
+.temporary-mode-toggle {
+    position: fixed;
+    top: 18px;
+    right: 438px;
+    z-index: 100;
+
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    padding: 7px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 12px;
+
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+
+    background: rgba(10, 13, 21, 0.82);
+    backdrop-filter: blur(10px);
+}
+
+.temporary-mode-toggle span {
+    margin: 0 5px 0 3px;
+}
+
+.temporary-mode-toggle button {
+    padding: 7px 11px;
+
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 8px;
+
+    color: rgba(255, 255, 255, 0.7);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+
+    background: rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+}
+
+.temporary-mode-toggle button.active {
+    border-color: #8067ef;
+    color: #ffffff;
+    background: #6246d9;
+}
+
+.temporary-mode-toggle button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.text-mode-guide .answer-recording-icon {
+    font-size: 21px;
 }
