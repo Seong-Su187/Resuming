@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import os
@@ -10,9 +11,10 @@ from PyPDF2 import PdfReader
 from schemas import SessionCreateRequest
 from database import get_db
 from audio_analyzer import extract_voice_metrics, calculate_delta
+from musetalk_client import synthesize_avatar_video
 from llm import (
-    generate_resume_based_questions, 
-    evaluate_answer_with_llm, 
+    generate_resume_based_questions,
+    evaluate_answer_with_llm,
     process_audio_to_text,
     generate_text_to_speech
 )
@@ -21,6 +23,36 @@ router = APIRouter(
     prefix="/interviews",
     tags=["Interviews"]
 )
+
+
+async def send_next_question(websocket: WebSocket, question_text: str, current_index: int):
+    """
+    질문 텍스트를 TTS로 음성 변환한 뒤 Colab MuseTalk 서버로 보내 립싱크 아바타 영상을 받아오고,
+    질문 텍스트 + 영상(base64)을 함께 프론트로 전송합니다.
+    MuseTalk 호출이 실패해도(Colab 미기동 등) 영상 없이 텍스트만으로 인터뷰가 계속되도록 처리합니다.
+    """
+    payload = {
+        "type": "next_question",
+        "current_index": current_index,
+        "question_text": question_text,
+        "avatar_video_base64": None,
+    }
+
+    tts_path = f"temp_question_tts_{uuid.uuid4()}.mp3"
+    try:
+        generate_text_to_speech(question_text, tts_path)
+        if os.path.exists(tts_path):
+            video_bytes = await synthesize_avatar_video(tts_path)
+            if video_bytes:
+                payload["avatar_video_base64"] = base64.b64encode(video_bytes).decode("utf-8")
+    except Exception as e:
+        print(f"[interviews] 아바타 영상 생성 중 오류 (텍스트만으로 계속 진행): {e}")
+    finally:
+        if os.path.exists(tts_path):
+            os.remove(tts_path)
+
+    await websocket.send_json(payload)
+
 
 @router.post("/session")
 def create_interview_session(data: SessionCreateRequest, db: Session = Depends(get_db)):
@@ -400,11 +432,7 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
             message_type = data.get("type")
             
             if message_type == "start_interview":
-                await websocket.send_json({
-                    "type": "next_question",
-                    "current_index": current_index + 1,
-                    "question_text": questions_list[current_index]
-                })
+                await send_next_question(websocket, questions_list[current_index], current_index + 1)
 
             elif message_type == "submit_answer":
                 user_text = data.get("transcribed_text", "")
@@ -441,9 +469,7 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
                 
                 current_index += 1
                 if current_index < total_questions:
-                    await websocket.send_json({
-                        "type": "next_question", "current_index": current_index + 1, "question_text": questions_list[current_index]
-                    })
+                    await send_next_question(websocket, questions_list[current_index], current_index + 1)
                 else:
                     final_avg_score = int(accumulated_score / total_questions)
                     db.execute(text("UPDATE interview_sessions SET overall_score = :score WHERE id = :id"), {"score": final_avg_score, "id": session_id})

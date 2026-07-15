@@ -22,6 +22,9 @@ function Interview() {
     const [questionIndex, setQuestionIndex] = useState(0);
     const [totalQuestions, setTotalQuestions] = useState(0);
 
+    const [interviewerVideoUrl, setInterviewerVideoUrl] = useState(null);
+    const interviewerVideoUrlRef = useRef(null);
+
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
 
@@ -49,6 +52,36 @@ function Interview() {
                 text,
             },
         ]);
+    };
+
+    // base64로 전달받은 mp4 데이터를 브라우저에서 재생 가능한 URL로 변환
+    const base64ToVideoUrl = (base64) => {
+        const byteCharacters = atob(base64);
+        const byteNumbers = new Array(byteCharacters.length);
+
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+
+        const blob = new Blob(
+            [new Uint8Array(byteNumbers)],
+            { type: 'video/mp4' },
+        );
+
+        return URL.createObjectURL(blob);
+    };
+
+    const setInterviewerVideo = (base64OrNull) => {
+        if (interviewerVideoUrlRef.current) {
+            URL.revokeObjectURL(interviewerVideoUrlRef.current);
+        }
+
+        const nextUrl = base64OrNull
+            ? base64ToVideoUrl(base64OrNull)
+            : null;
+
+        interviewerVideoUrlRef.current = nextUrl;
+        setInterviewerVideoUrl(nextUrl);
     };
 
     /*
@@ -371,6 +404,8 @@ function Interview() {
                         'interviewer',
                         data.question_text,
                     );
+
+                    setInterviewerVideo(data.avatar_video_base64 || null);
 
                     return;
                 }
@@ -738,6 +773,11 @@ function Interview() {
                 websocketRef.current.close();
                 websocketRef.current = null;
             }
+
+            if (interviewerVideoUrlRef.current) {
+                URL.revokeObjectURL(interviewerVideoUrlRef.current);
+                interviewerVideoUrlRef.current = null;
+            }
         };
     }, []);
 
@@ -766,6 +806,16 @@ function Interview() {
             </div>
 
             <section className="interview-left">
+                {interviewerVideoUrl && (
+                    <video
+                        key={interviewerVideoUrl}
+                        className="interviewer-avatar-video"
+                        src={interviewerVideoUrl}
+                        autoPlay
+                        playsInline
+                    />
+                )}
+
                 <div className="interview-status">
                     <span
                         className={`status-dot ${isRecordingAnswer
