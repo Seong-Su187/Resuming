@@ -19,6 +19,17 @@
     background-position: left center;
 }
 
+.interviewer-avatar-video {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center;
+}
+
 .interview-status {
     position: absolute;
     top: 24px;

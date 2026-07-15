@@ -10,6 +10,10 @@ function Main({ mainVideoUrl }) {
     const [messageStep, setMessageStep] = useState(0);
 
     const handleVideoPlay = () => {
+        if (videoRef.current) {
+            videoRef.current.muted = false;
+        }
+
         messageTimerRef.current.forEach((timer) => {
             clearTimeout(timer);
         });
@@ -59,6 +63,7 @@ function Main({ mainVideoUrl }) {
                     className="main-video"
                     src={mainVideoUrl}
                     autoPlay
+                    muted
                     playsInline
                     onPlay={handleVideoPlay}
                     onLoadedMetadata={(event) => {
@@ -95,9 +100,9 @@ function Main({ mainVideoUrl }) {
                             <span>ESUMING</span>
                         </p>
 
-                        <p className={`main-actions main-message-item ${messageStep >= 4 ? 'visible' : ''}`} >
+                        <div className={`main-actions main-message-item ${messageStep >= 4 ? 'visible' : ''}`} >
                             {isLoggedIn ? (
-                                <p className="main-buttons">
+                                <div className="main-buttons">
                                     <button
                                         type="button"
                                         className="main-button primary"
@@ -113,7 +118,7 @@ function Main({ mainVideoUrl }) {
                                     >
                                         로그아웃
                                     </button>
-                                </p>
+                                </div>
                             ) : (
                                 <button
                                     type="button"
@@ -123,7 +128,7 @@ function Main({ mainVideoUrl }) {
                                     로그인
                                 </button>
                             )}
-                        </p>
+                        </div>
                     </div>
                 </div>
             </section>
