@@ -1,8 +1,6 @@
 # Local env files
 .env
 .env.local
-.env.development.localpostgresql://postgres.snlceykmuawhxuohcgpj:Aiview5teamproject@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
-.env.test.local
 .env.production.local
 
 # python / venv
