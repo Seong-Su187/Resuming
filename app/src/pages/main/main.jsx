@@ -1,11 +1,35 @@
-/* main.jsx */
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import '../../index.css';
 import './main.css';
 
-function Main() {
+function Main({ mainVideoUrl }) {
     const navigate = useNavigate();
+    const videoRef = useRef(null);
+    const messageTimerRef = useRef([]);
+    const [messageStep, setMessageStep] = useState(0);
+
+    const handleVideoPlay = () => {
+        messageTimerRef.current.forEach((timer) => {
+            clearTimeout(timer);
+        });
+
+        setMessageStep(1);
+
+        messageTimerRef.current = [
+            setTimeout(() => setMessageStep(2), 1500),
+            setTimeout(() => setMessageStep(3), 7500),
+            setTimeout(() => setMessageStep(4), 9000),
+        ];
+    };
+
+    useEffect(() => {
+        return () => {
+            messageTimerRef.current.forEach((timer) => {
+                clearTimeout(timer);
+            });
+        };
+    }, []);
 
     const [isLoggedIn, setIsLoggedIn] = useState(() => {
         return Boolean(localStorage.getItem('userId'));
@@ -28,41 +52,86 @@ function Main() {
     };
 
     return (
-        <main className="page">
-            <section className="main-card">
-                <h1 className="logo">
-                    <img
-                        src="/assets/resuming-r.png"
-                        alt="R"
-                        className="logo-image"
-                    />
-                    <span>ESUMING</span>
-                </h1>
+        <main className="main-page">
+            <section className="main-card section1">
+                <video
+                    ref={videoRef}
+                    className="main-video"
+                    src={mainVideoUrl}
+                    autoPlay
+                    playsInline
+                    onPlay={handleVideoPlay}
+                    onLoadedMetadata={(event) => {
+                        event.currentTarget.volume = 0.1;
+                    }}
+                />
 
-                {isLoggedIn ? (
-                    <div className="main-buttons">
-                        <button
-                            type="button"
-                            onClick={handleStartInterview}
-                        >
-                            면접 시작하기
-                        </button>
+                <div className="main-overlay">
+                    <div className="main-message">
+                        <p className={`main-message-item ${messageStep >= 1 ? 'visible' : ''}`} >
+                            면접이 두려우신가요?
+                        </p>
 
-                        <button
-                            type="button"
-                            onClick={handleLogout}
-                        >
-                            로그아웃
-                        </button>
+                        <p className={`main-message-item ${messageStep >= 2 ? 'visible' : ''}`} >
+                            <img
+                                src="/assets/resuming-r.png"
+                                alt="R"
+                                className="main-message-image"
+                            />
+                            ESUMING과 함께 실제 면접과 같은 환경에서
+                            <br />
+                            차분하게 말하는 연습을 시작해 보세요.
+                        </p>
+
+                        <p className={`main-message-item ${messageStep >= 3 ? 'visible' : ''}`} >
+                            <span>자신 있는 면접을 위한 첫걸음, </span>
+
+                            <img
+                                src="/assets/resuming-r.png"
+                                alt="R"
+                                className="main-message-image"
+                            />
+
+                            <span>ESUMING</span>
+                        </p>
+
+                        <p className={`main-actions main-message-item ${messageStep >= 4 ? 'visible' : ''}`} >
+                            {isLoggedIn ? (
+                                <p className="main-buttons">
+                                    <button
+                                        type="button"
+                                        className="main-button primary"
+                                        onClick={handleStartInterview}
+                                    >
+                                        시작하기
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        className="main-button"
+                                        onClick={handleLogout}
+                                    >
+                                        로그아웃
+                                    </button>
+                                </p>
+                            ) : (
+                                <button
+                                    type="button"
+                                    className="main-button primary"
+                                    onClick={handleLogin}
+                                >
+                                    로그인
+                                </button>
+                            )}
+                        </p>
                     </div>
-                ) : (
-                    <button
-                        type="button"
-                        onClick={handleLogin}
-                    >
-                        로그인
-                    </button>
-                )}
+                </div>
+            </section>
+
+            <section className="main-card section2">
+            </section>
+
+            <section className="main-card section3">
             </section>
         </main>
     );

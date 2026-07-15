@@ -16,6 +16,57 @@ from llm import (
     process_audio_to_text,
     generate_text_to_speech
 )
+import subprocess
+
+def convert_audio_to_wav(
+    input_path: str,
+    output_path: str,
+) -> None:
+    """
+    브라우저에서 녹음된 WebM/Opus 음성을
+    분석 가능한 mono 16-bit PCM WAV로 변환합니다.
+    """
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                input_path,
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                output_path,
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    except FileNotFoundError as error:
+        raise RuntimeError(
+            "FFmpeg를 찾을 수 없습니다. "
+            "FFmpeg 설치와 PATH 설정을 확인해주세요."
+        ) from error
+
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"오디오 WAV 변환 실패: {result.stderr}"
+        )
+
+    if not os.path.exists(output_path):
+        raise RuntimeError(
+            "변환된 WAV 파일이 생성되지 않았습니다."
+        )
+
+    if os.path.getsize(output_path) == 0:
+        raise RuntimeError(
+            "변환된 WAV 파일이 비어 있습니다."
+        )
 
 router = APIRouter(
     prefix="/interviews",
@@ -225,6 +276,212 @@ def use_existing_resume(
             status_code=500,
             detail=f"기존 이력서 사용 중 오류 발생: {str(e)}"
         )
+    
+
+
+@router.get("/baseline-voice/{user_id}")
+def get_baseline_voice(
+    user_id: str,
+    db: Session = Depends(get_db),
+):
+    """사용자의 기존 기본 음성 분석 정보 조회"""
+    try:
+        query = text("""
+            SELECT
+                baseline_jitter,
+                baseline_shimmer,
+                baseline_wpm
+            FROM profiles
+            WHERE id = :user_id
+        """)
+
+        result = db.execute(
+            query,
+            {"user_id": user_id},
+        ).fetchone()
+
+        if not result:
+            return {
+                "status": "success",
+                "has_baseline": False,
+                "metrics": None,
+            }
+
+        baseline_jitter = result[0]
+        baseline_shimmer = result[1]
+        baseline_wpm = result[2]
+
+        has_baseline = (
+            baseline_jitter is not None
+            and baseline_shimmer is not None
+            and baseline_wpm is not None
+        )
+
+        if not has_baseline:
+            return {
+                "status": "success",
+                "has_baseline": False,
+                "metrics": None,
+            }
+
+        return {
+            "status": "success",
+            "has_baseline": True,
+            "metrics": {
+                "jitter": float(baseline_jitter),
+                "shimmer": float(baseline_shimmer),
+                "wpm": float(baseline_wpm),
+            },
+        }
+
+    except HTTPException:
+        raise
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"기존 음성 조회 중 오류가 발생했습니다: {str(e)}",
+        )
+    
+@router.post("/baseline-voice")
+async def save_baseline_voice(
+    user_id: str = Form(...),
+    audio_file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    사용자의 평상시 음성을 분석하고
+    jitter, shimmer, wpm을 profiles 테이블에 저장합니다.
+    """
+    file_id = uuid.uuid4()
+
+    temp_webm_path = f"temp_baseline_{file_id}.webm"
+    temp_wav_path = f"temp_baseline_{file_id}.wav"
+
+    try:
+        audio_content = await audio_file.read()
+
+        if not audio_content:
+            raise HTTPException(
+                status_code=400,
+                detail="녹음된 음성 파일이 비어 있습니다.",
+            )
+
+        with open(temp_webm_path, "wb") as buffer:
+            buffer.write(audio_content)
+
+        # WebM/Opus → WAV 변환
+        convert_audio_to_wav(
+            temp_webm_path,
+            temp_wav_path,
+        )
+
+        # 변환된 WAV 파일로 STT 수행
+        transcribed_text = process_audio_to_text(
+            temp_wav_path,
+        )
+
+        if not transcribed_text or not transcribed_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="음성을 인식하지 못했습니다. 조금 더 크게 다시 읽어주세요.",
+            )
+
+        # WAV 파일로 음성 지표 분석
+        metrics = extract_voice_metrics(
+            temp_wav_path,
+            transcribed_text,
+        )
+
+        baseline_jitter = float(metrics.get("jitter", 0.0))
+        baseline_shimmer = float(metrics.get("shimmer", 0.0))
+        baseline_wpm = float(metrics.get("wpm", 0.0))
+
+        profile_query = text("""
+            SELECT id
+            FROM profiles
+            WHERE id = :user_id
+        """)
+
+        profile = db.execute(
+            profile_query,
+            {"user_id": user_id},
+        ).fetchone()
+
+        if profile:
+            update_query = text("""
+                UPDATE profiles
+                SET baseline_jitter = :baseline_jitter,
+                    baseline_shimmer = :baseline_shimmer,
+                    baseline_wpm = :baseline_wpm
+                WHERE id = :user_id
+            """)
+
+            db.execute(
+                update_query,
+                {
+                    "user_id": user_id,
+                    "baseline_jitter": baseline_jitter,
+                    "baseline_shimmer": baseline_shimmer,
+                    "baseline_wpm": baseline_wpm,
+                },
+            )
+        else:
+            insert_query = text("""
+                INSERT INTO profiles (
+                    id,
+                    baseline_jitter,
+                    baseline_shimmer,
+                    baseline_wpm
+                )
+                VALUES (
+                    :user_id,
+                    :baseline_jitter,
+                    :baseline_shimmer,
+                    :baseline_wpm
+                )
+            """)
+
+            db.execute(
+                insert_query,
+                {
+                    "user_id": user_id,
+                    "baseline_jitter": baseline_jitter,
+                    "baseline_shimmer": baseline_shimmer,
+                    "baseline_wpm": baseline_wpm,
+                },
+            )
+
+        db.commit()
+
+        return {
+            "status": "success",
+            "message": "기본 음성 정보가 저장되었습니다.",
+            "transcribed_text": transcribed_text,
+            "metrics": {
+                "jitter": baseline_jitter,
+                "shimmer": baseline_shimmer,
+                "wpm": baseline_wpm,
+            },
+        }
+
+    except HTTPException:
+        db.rollback()
+        raise
+
+    except Exception as e:
+        db.rollback()
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"기본 음성 처리 중 오류가 발생했습니다: {str(e)}",
+        )
+
+    finally:
+        if os.path.exists(temp_webm_path):
+            os.remove(temp_webm_path)
+        if os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
 
 
 @router.post("/{session_id}/process-audio")
@@ -235,13 +492,24 @@ async def process_interview_audio(
     db: Session = Depends(get_db)
 ):
     """면접관 질문에 대한 사용자 답변 오디오를 받아 STT 및 평음 대조 떨림 분석"""
-    temp_path = f"temp_answer_{uuid.uuid4()}.webm"
+    file_id = uuid.uuid4()
+    temp_webm_path = f"temp_answer_{file_id}.webm"
+    temp_wav_path = f"temp_answer_{file_id}.wav"
     try:
-        with open(temp_path, "wb") as buffer:
-            buffer.write(await audio_file.read())
+        audio_content = await audio_file.read()
+
+        if not audio_content:
+            raise HTTPException(
+                status_code=400,
+                detail="녹음된 답변 파일이 비어 있습니다.",
+            )
+
+        with open(temp_webm_path, "wb") as buffer:
+            buffer.write(audio_content)
             
-        transcribed_text = process_audio_to_text(temp_path)
-        current_metrics = extract_voice_metrics(temp_path, transcribed_text)
+        convert_audio_to_wav(temp_webm_path, temp_wav_path)
+        transcribed_text = process_audio_to_text(temp_wav_path)
+        current_metrics = extract_voice_metrics(temp_wav_path, transcribed_text)
         
         profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = :user_id")
         profile = db.execute(profile_query, {"user_id": user_id}).fetchone()
@@ -263,15 +531,18 @@ async def process_interview_audio(
             "speed_difference_wpm": delta_wpm
         }
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        if os.path.exists(temp_webm_path):
+            os.remove(temp_webm_path)
+        if os.path.exists(temp_wav_path):
+            os.remove(temp_wav_path)
 
 
 @router.post("/tts")
 async def text_to_speech(text_payload: dict):
     """텍스트를 받아 음성 파일(mp3)로 반환"""
     text = text_payload.get("text", "")
-    temp_path = f"temp_tts_{uuid.uuid4()}.mp3"
+    file_id = uuid.uuid4()
+    temp_path = f"temp_tts_{file_id}.mp3"
     try:
         output_file = generate_text_to_speech(text, temp_path)
         return FileResponse(output_file, media_type="audio/mpeg", filename="avatar.mp3")
@@ -386,8 +657,14 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
         await websocket.close()
         return
 
-    questions_list = result[0]
+    questions_raw = result[0]
     job_category = result[1]
+
+    if isinstance(questions_raw, str):
+        questions_list = json.loads(questions_raw)
+    else:
+        questions_list = questions_raw
+
     total_questions = len(questions_list)
     current_index = 0
     accumulated_score = 0
@@ -403,6 +680,7 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
                 await websocket.send_json({
                     "type": "next_question",
                     "current_index": current_index + 1,
+                    "total_questions": total_questions,
                     "question_text": questions_list[current_index]
                 })
 
@@ -442,7 +720,10 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
                 current_index += 1
                 if current_index < total_questions:
                     await websocket.send_json({
-                        "type": "next_question", "current_index": current_index + 1, "question_text": questions_list[current_index]
+                        "type": "next_question",
+                        "current_index": current_index + 1,
+                        "total_questions": total_questions,
+                        "question_text": questions_list[current_index]
                     })
                 else:
                     final_avg_score = int(accumulated_score / total_questions)

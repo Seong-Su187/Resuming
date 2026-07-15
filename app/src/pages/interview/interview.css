@@ -684,6 +684,238 @@
     }
 }
 
+.baseline-recording-guide {
+    max-height: 330px;
+    padding: 20px;
+    margin-bottom: 16px;
+
+    overflow-y: auto;
+
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    border-radius: 16px;
+}
+
+.baseline-guide-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    margin-bottom: 10px;
+}
+
+.baseline-guide-header strong {
+    font-size: 18px;
+}
+
+.baseline-guide-header span {
+    font-weight: 700;
+    color: #d94848;
+}
+
+.baseline-guide-description {
+    margin-bottom: 14px;
+
+    font-size: 14px;
+    color: #666;
+}
+
+.baseline-guide-text {
+    line-height: 1.8;
+    white-space: pre-line;
+
+    font-size: 15px;
+    color: #222;
+}
+
+.record-button.recording {
+    background: #d94848;
+}
+
+
+.baseline-choice-area {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+}
+
+.existing-baseline-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+
+    width: 100%;
+    padding: 16px 18px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+
+    color: #ffffff;
+    background: rgba(10, 13, 21, 0.72);
+    backdrop-filter: blur(12px);
+}
+
+.existing-baseline-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 46px;
+    height: 46px;
+    flex-shrink: 0;
+
+    border-radius: 12px;
+
+    font-size: 23px;
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.existing-baseline-card>div {
+    min-width: 0;
+}
+
+.existing-baseline-card strong {
+    display: block;
+    margin-bottom: 5px;
+
+    font-size: 15px;
+}
+
+.existing-baseline-card p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.baseline-metric-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+
+    margin-top: 10px;
+}
+
+.baseline-metric-summary span {
+    padding: 5px 8px;
+
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 8px;
+
+    color: rgba(255, 255, 255, 0.75);
+    font-size: 11px;
+    background: rgba(255, 255, 255, 0.07);
+}
+
+.baseline-choice-buttons {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.baseline-choice-buttons .interview-action-button {
+    flex: 1;
+    width: auto;
+}
+
+.baseline-use-button {
+    background: linear-gradient(135deg, #5576ff, #3e57cf);
+}
+
+.baseline-rerecord-button {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #ffffff;
+    background: rgba(10, 13, 21, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.baseline-rerecord-button:hover:not(:disabled) {
+    background: rgba(30, 36, 50, 0.9);
+}
+
+.baseline-preview-area {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    width: 100%;
+}
+
+.baseline-preview-card {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+
+    width: 100%;
+    padding: 18px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 16px;
+
+    color: #ffffff;
+    background: rgba(10, 13, 21, 0.78);
+    backdrop-filter: blur(12px);
+}
+
+.baseline-preview-card strong {
+    font-size: 16px;
+}
+
+.baseline-audio-player {
+    width: 100%;
+    height: 46px;
+}
+
+.baseline-privacy-notice {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 12px;
+    line-height: 1.6;
+}
+
+.baseline-preview-buttons {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+}
+
+.baseline-preview-buttons .interview-action-button {
+    flex: 1;
+    width: auto;
+}
+
+.baseline-retry-button {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+
+    color: #ffffff;
+    background: rgba(10, 13, 21, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.baseline-retry-button:hover:not(:disabled) {
+    background: rgba(30, 36, 50, 0.9);
+}
+
+.baseline-confirm-button {
+    background: linear-gradient(135deg, #5576ff, #3e57cf);
+}
+
+.baseline-replay-button {
+    border: 1px solid rgba(255, 255, 255, 0.25);
+
+    color: #ffffff;
+    background: rgba(85, 118, 255, 0.45);
+    backdrop-filter: blur(10px);
+}
+
+.baseline-replay-button:hover:not(:disabled) {
+    background: rgba(85, 118, 255, 0.65);
+}
+
 
 
 

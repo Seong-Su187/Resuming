@@ -1,5 +1,18 @@
 /* register.css */
-.page {
+.register-page {
+    position: relative;
+    isolation: isolate;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 100vw;
+    min-height: 100vh;
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: hidden;
+
     background-image: url('/assets/login-bg.png');
     background-size: cover;
     background-position: center;

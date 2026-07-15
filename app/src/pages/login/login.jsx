@@ -103,7 +103,7 @@ function Login() {
     };
 
     return (
-        <main className="page">
+        <main className="login-page">
             <div
                 className="worry-bubbles"
                 aria-hidden="true"
