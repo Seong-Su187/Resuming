@@ -6,6 +6,7 @@ import Login from './pages/login/login';
 import Register from './pages/register/register';
 import Start from './pages/start/start';
 import Main from './pages/main/main';
+import Interview from './pages/interview/interview';
 
 function App() {
   const [startVideoUrl, setStartVideoUrl] = useState(null);
@@ -43,13 +44,14 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Login />} />
+        <Route path="/" element={<Main />} />
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route
           path="/start"
           element={<Start startVideoUrl={startVideoUrl} />}
         />
-        <Route path="/main" element={<Main />} />
+        <Route path="/interview" element={<Interview />} />
       </Routes>
     </Router>
   );
