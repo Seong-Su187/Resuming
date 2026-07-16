@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import json
@@ -17,6 +18,7 @@ from llm import (
     evaluate_answer_with_llm,
     process_audio_to_text,
     generate_text_to_speech,
+    generate_candidate_answer_with_llm,
     AVATAR_VOICE_MAP
 )
 import subprocess
@@ -77,32 +79,97 @@ router = APIRouter(
 )
 
 
-async def send_next_question(websocket: WebSocket, question_text: str, current_index: int, total_questions: int):
+async def build_candidate_answers(
+    question_text: str,
+    selected_candidates: list[dict],
+) -> list[dict]:
     """
-    질문 텍스트를 TTS로 음성 변환한 뒤 Colab MuseTalk 서버로 보내 립싱크 아바타 영상을 받아오고,
-    질문 텍스트 + 영상(base64)을 함께 프론트로 전송합니다.
-    MuseTalk 호출이 실패해도(Colab 미기동 등) 영상 없이 텍스트만으로 인터뷰가 계속되도록 처리합니다.
+    선택된 지원자별 성향을 반영한 답변을 병렬로 생성합니다.
+    특정 지원자의 생성이 실패해도 나머지 지원자의 면접은 계속 진행합니다.
     """
+    async def generate_one(candidate: dict) -> dict:
+        candidate_id = candidate.get("id")
+        candidate_name = candidate.get("name", "지원자")
+        description = candidate.get("description", "")
+
+        try:
+            answer = await asyncio.to_thread(
+                generate_candidate_answer_with_llm,
+                question_text,
+                candidate_name,
+                description,
+            )
+        except Exception as error:
+            print(
+                f"[interviews] {candidate_name} 답변 생성 오류: {error}"
+            )
+            answer = (
+                "죄송합니다. 잠시 긴장해서 답변을 정리하지 못했습니다."
+            )
+
+        return {
+            "candidate_id": candidate_id,
+            "name": candidate_name,
+            "answer": answer.strip(),
+        }
+
+    if not selected_candidates:
+        return []
+
+    return await asyncio.gather(
+        *(generate_one(candidate) for candidate in selected_candidates)
+    )
+
+
+async def send_next_question(
+    websocket: WebSocket,
+    question_text: str,
+    current_index: int,
+    total_questions: int,
+    selected_candidates: list[dict],
+):
+    """
+    질문 영상과 선택된 지원자들의 질문별 답변을 함께 전송합니다.
+    프론트엔드는 candidate_answers를 무작위 순서와 간격으로 재생합니다.
+    """
+    candidate_answers_task = asyncio.create_task(
+        build_candidate_answers(
+            question_text,
+            selected_candidates,
+        )
+    )
+
     payload = {
         "type": "next_question",
         "current_index": current_index,
         "total_questions": total_questions,
         "question_text": question_text,
         "avatar_video_base64": None,
+        "candidate_answers": [],
     }
 
     tts_path = f"temp_question_tts_{uuid.uuid4()}.mp3"
+
     try:
         generate_text_to_speech(question_text, tts_path)
+
         if os.path.exists(tts_path):
             video_bytes = await synthesize_avatar_video(tts_path)
+
             if video_bytes:
-                payload["avatar_video_base64"] = base64.b64encode(video_bytes).decode("utf-8")
-    except Exception as e:
-        print(f"[interviews] 아바타 영상 생성 중 오류 (텍스트만으로 계속 진행): {e}")
+                payload["avatar_video_base64"] = base64.b64encode(
+                    video_bytes
+                ).decode("utf-8")
+    except Exception as error:
+        print(
+            "[interviews] 아바타 영상 생성 중 오류 "
+            f"(텍스트만으로 계속 진행): {error}"
+        )
     finally:
         if os.path.exists(tts_path):
             os.remove(tts_path)
+
+    payload["candidate_answers"] = await candidate_answers_task
 
     await websocket.send_json(payload)
 
@@ -684,11 +751,23 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
 
 
 @router.websocket("/ws/{session_id}")
-async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db: Session = Depends(get_db)):
-    """실시간 웹소켓 면접 제어"""
+async def websocket_interview_endpoint(
+    websocket: WebSocket,
+    session_id: str,
+    db: Session = Depends(get_db),
+):
+    """실시간 WebSocket 면접 제어"""
     await websocket.accept()
-    
-    result = db.execute(text("SELECT questions, job_category FROM interview_sessions WHERE id = :id"), {"id": session_id}).fetchone()
+
+    result = db.execute(
+        text("""
+            SELECT questions, job_category
+            FROM interview_sessions
+            WHERE id = :id
+        """),
+        {"id": session_id},
+    ).fetchone()
+
     if not result:
         await websocket.close()
         return
@@ -704,58 +783,169 @@ async def websocket_interview_endpoint(websocket: WebSocket, session_id: str, db
     total_questions = len(questions_list)
     current_index = 0
     accumulated_score = 0
+    selected_candidates: list[dict] = []
 
     try:
-        await websocket.send_json({"type": "connection_established"})
-        
+        await websocket.send_json({
+            "type": "connection_established",
+        })
+
         while True:
             data = await websocket.receive_json()
             message_type = data.get("type")
-            
+
             if message_type == "start_interview":
-                await send_next_question(websocket, questions_list[current_index], current_index + 1, total_questions)
+                received_candidates = data.get(
+                    "selected_candidates",
+                    [],
+                )
+
+                selected_candidates = [
+                    {
+                        "id": candidate.get("id"),
+                        "name": candidate.get("name", "지원자"),
+                        "description": candidate.get(
+                            "description",
+                            "",
+                        ),
+                    }
+                    for candidate in received_candidates
+                    if isinstance(candidate, dict)
+                ]
+
+                await send_next_question(
+                    websocket,
+                    questions_list[current_index],
+                    current_index + 1,
+                    total_questions,
+                    selected_candidates,
+                )
 
             elif message_type == "submit_answer":
-                user_text = data.get("transcribed_text", "")
-                jitter_delta = data.get("jitter_shaken_percentage", 0.0)
-                shimmer_delta = data.get("shimmer_shaken_percentage", 0.0)
-                wpm_delta = data.get("speed_difference_wpm", 0.0)
-                
+                user_text = data.get(
+                    "transcribed_text",
+                    "",
+                )
+                jitter_delta = data.get(
+                    "jitter_shaken_percentage",
+                    0.0,
+                )
+                shimmer_delta = data.get(
+                    "shimmer_shaken_percentage",
+                    0.0,
+                )
+                wpm_delta = data.get(
+                    "speed_difference_wpm",
+                    0.0,
+                )
+
                 current_question = questions_list[current_index]
 
-                rag_result = db.execute(text("SELECT ideal_answer FROM interview_rag_store WHERE job_category = :job LIMIT 1"), {"job": job_category}).fetchone()
-                ideal_answer = rag_result[0] if rag_result else ""
+                rag_result = db.execute(
+                    text("""
+                        SELECT ideal_answer
+                        FROM interview_rag_store
+                        WHERE job_category = :job
+                        LIMIT 1
+                    """),
+                    {"job": job_category},
+                ).fetchone()
 
-                evaluation = evaluate_answer_with_llm(current_question, user_text, ideal_answer)
-                earned_score, feedback_text = evaluation.get("score", 0), evaluation.get("feedback", "오류")
+                ideal_answer = (
+                    rag_result[0]
+                    if rag_result
+                    else ""
+                )
+
+                evaluation = evaluate_answer_with_llm(
+                    current_question,
+                    user_text,
+                    ideal_answer,
+                )
+
+                earned_score = evaluation.get("score", 0)
+                feedback_text = evaluation.get(
+                    "feedback",
+                    "오류",
+                )
                 accumulated_score += earned_score
 
                 log_query = text("""
-                    INSERT INTO qa_logs (session_id, question, transcribed_text, 
-                                         jitter_shaken_percentage, shimmer_shaken_percentage, 
-                                         speed_difference_wpm, score, feedback)
-                    VALUES (:session_id, :question, :transcribed_text, 
-                            :jitter, :shimmer, :wpm, :score, :feedback)
+                    INSERT INTO qa_logs (
+                        session_id,
+                        question,
+                        transcribed_text,
+                        jitter_shaken_percentage,
+                        shimmer_shaken_percentage,
+                        speed_difference_wpm,
+                        score,
+                        feedback
+                    )
+                    VALUES (
+                        :session_id,
+                        :question,
+                        :transcribed_text,
+                        :jitter,
+                        :shimmer,
+                        :wpm,
+                        :score,
+                        :feedback
+                    )
                 """)
-                db.execute(log_query, {
-                    "session_id": session_id, "question": current_question, "transcribed_text": user_text,
-                    "jitter": jitter_delta, "shimmer": shimmer_delta, "wpm": wpm_delta,
-                    "score": earned_score, "feedback": feedback_text
-                })
+
+                db.execute(
+                    log_query,
+                    {
+                        "session_id": session_id,
+                        "question": current_question,
+                        "transcribed_text": user_text,
+                        "jitter": jitter_delta,
+                        "shimmer": shimmer_delta,
+                        "wpm": wpm_delta,
+                        "score": earned_score,
+                        "feedback": feedback_text,
+                    },
+                )
                 db.commit()
 
                 await websocket.send_json({
-                    "type": "qa_feedback", "question": current_question, "score": earned_score, "feedback": feedback_text
+                    "type": "qa_feedback",
+                    "question": current_question,
+                    "score": earned_score,
+                    "feedback": feedback_text,
                 })
-                
+
                 current_index += 1
+
                 if current_index < total_questions:
-                    await send_next_question(websocket, questions_list[current_index], current_index + 1, total_questions)
+                    await send_next_question(
+                        websocket,
+                        questions_list[current_index],
+                        current_index + 1,
+                        total_questions,
+                        selected_candidates,
+                    )
                 else:
-                    final_avg_score = int(accumulated_score / total_questions)
-                    db.execute(text("UPDATE interview_sessions SET overall_score = :score WHERE id = :id"), {"score": final_avg_score, "id": session_id})
+                    final_avg_score = int(
+                        accumulated_score / total_questions
+                    )
+
+                    db.execute(
+                        text("""
+                            UPDATE interview_sessions
+                            SET overall_score = :score
+                            WHERE id = :id
+                        """),
+                        {
+                            "score": final_avg_score,
+                            "id": session_id,
+                        },
+                    )
                     db.commit()
-                    await websocket.send_json({"type": "interview_completed"})
-                
+
+                    await websocket.send_json({
+                        "type": "interview_completed",
+                    })
+
     except WebSocketDisconnect:
         print("연결 종료")

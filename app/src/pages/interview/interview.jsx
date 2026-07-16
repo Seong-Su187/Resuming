@@ -13,6 +13,15 @@ function Interview() {
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
 
+    const candidateDelayTimerRef = useRef(null);
+
+    const isRecordingAnswerRef = useRef(false);
+    const isStartingAnswerRecordingRef = useRef(false);
+    const pendingUserAnswerRef = useRef(null);
+
+    const candidateTypingTimerRef = useRef(null);
+    const candidateFinishTimerRef = useRef(null);
+
     const baselineRecorderRef = useRef(null);
     const baselineStreamRef = useRef(null);
     const baselineChunksRef = useRef([]);
@@ -30,6 +39,19 @@ function Interview() {
     const [resumeName, setResumeName] = useState('');
     const [questionIndex, setQuestionIndex] = useState(0);
     const [totalQuestions, setTotalQuestions] = useState(0);
+    const [selectedCandidates] = useState(() => {
+        try {
+            return JSON.parse(
+                sessionStorage.getItem('selectedCandidates') || '[]',
+            );
+        } catch (error) {
+            console.error('선택 면접자 정보 파싱 오류:', error);
+            return [];
+        }
+    });
+    const [candidateAnswerQueue, setCandidateAnswerQueue] = useState([]);
+    const [activeCandidateAnswer, setActiveCandidateAnswer] = useState(null);
+    const [typedCandidateText, setTypedCandidateText] = useState('');
 
     const [interviewerVideoUrl, setInterviewerVideoUrl] = useState(null);
     const interviewerVideoUrlRef = useRef(null);
@@ -52,6 +74,10 @@ function Interview() {
     const [pendingBaselineBlob, setPendingBaselineBlob] = useState(null);
     const [baselineAudioUrl, setBaselineAudioUrl] = useState('');
     const [isBaselinePreview, setIsBaselinePreview] = useState(false);
+
+    const [isStartingAnswerRecording, setIsStartingAnswerRecording] = useState(false);
+    const [hasUserAnsweredCurrentQuestion, setHasUserAnsweredCurrentQuestion] = useState(false);
+    const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
 
     const baselineGuideText = `
         안녕하세요. 지금부터 기본 음성 등록을 시작하겠습니다.
@@ -81,15 +107,36 @@ function Interview() {
         },
     ]);
 
-    const addMessage = (type, text) => {
+    const isCandidateSpeaking = Boolean(activeCandidateAnswer);
+
+    const isUserTurnActive =
+        isRecordingAnswer || isStartingAnswerRecording;
+
+    const addMessage = (type, text, name = '') => {
         setMessages((prev) => [
             ...prev,
             {
                 id: `${Date.now()}-${Math.random()}`,
                 type,
                 text,
+                name,
             },
         ]);
+    };
+
+    const shuffleCandidateAnswers = (answers) => {
+        const shuffled = [...answers];
+
+        for (let index = shuffled.length - 1; index > 0; index -= 1) {
+            const randomIndex = Math.floor(Math.random() * (index + 1));
+
+            [shuffled[index], shuffled[randomIndex]] = [
+                shuffled[randomIndex],
+                shuffled[index],
+            ];
+        }
+
+        return shuffled;
     };
 
     // base64로 전달받은 mp4 데이터를 브라우저에서 재생 가능한 URL로 변환
@@ -804,6 +851,7 @@ function Interview() {
                     websocket.send(
                         JSON.stringify({
                             type: 'start_interview',
+                            selected_candidates: selectedCandidates,
                         }),
                     );
 
@@ -811,6 +859,17 @@ function Interview() {
                 }
 
                 if (data.type === 'next_question') {
+                    clearTimeout(candidateDelayTimerRef.current);
+
+                    pendingUserAnswerRef.current = null;
+                    isRecordingAnswerRef.current = false;
+                    isStartingAnswerRecordingRef.current = false;
+
+                    setHasUserAnsweredCurrentQuestion(false);
+                    setIsStartingAnswerRecording(false);
+                    setIsRecordingAnswer(false);
+                    setIsProcessingAnswer(false);
+
                     setQuestionIndex(data.current_index - 1);
                     setTotalQuestions(data.total_questions);
                     setStep('answer');
@@ -820,7 +879,18 @@ function Interview() {
                         data.question_text,
                     );
 
-                    setInterviewerVideo(data.avatar_video_base64 || null);
+                    setInterviewerVideo(
+                        data.avatar_video_base64 || null,
+                    );
+
+                    setActiveCandidateAnswer(null);
+                    setTypedCandidateText('');
+
+                    setCandidateAnswerQueue(
+                        shuffleCandidateAnswers(
+                            data.candidate_answers ?? [],
+                        ),
+                    );
 
                     return;
                 }
@@ -889,9 +959,24 @@ function Interview() {
     };
 
     const startAnswerRecording = async () => {
-        if (step !== 'answer' || isRecordingAnswer) {
+        if (
+            step !== 'answer' ||
+            isRecordingAnswerRef.current ||
+            isStartingAnswerRecordingRef.current ||
+            activeCandidateAnswer ||
+            hasUserAnsweredCurrentQuestion
+        ) {
             return;
         }
+
+        /*
+         * 마이크 권한 요청 전에 발언권을 먼저 확보합니다.
+         * getUserMedia를 기다리는 사이 지원자 타이머가 실행되는 것을 방지합니다.
+         */
+        clearTimeout(candidateDelayTimerRef.current);
+
+        isStartingAnswerRecordingRef.current = true;
+        setIsStartingAnswerRecording(true);
 
         const websocket = websocketRef.current;
 
@@ -899,29 +984,50 @@ function Interview() {
             !websocket ||
             websocket.readyState !== WebSocket.OPEN
         ) {
+            isStartingAnswerRecordingRef.current = false;
+            setIsStartingAnswerRecording(false);
+
             addMessage(
                 'system',
                 '면접 서버 연결이 끊어졌습니다.',
             );
+
             return;
         }
 
         if (!navigator.mediaDevices?.getUserMedia) {
+            isStartingAnswerRecordingRef.current = false;
+            setIsStartingAnswerRecording(false);
+
             addMessage(
                 'system',
                 '현재 브라우저에서는 음성 녹음을 지원하지 않습니다.',
             );
+
             return;
         }
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    autoGainControl: true,
-                },
-            });
+            const stream =
+                await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                    },
+                });
+
+            /*
+             * 권한 요청 중 지원자 발언이 시작됐다면
+             * 마이크를 사용하지 않고 종료합니다.
+             */
+            if (activeCandidateAnswer) {
+                stream
+                    .getTracks()
+                    .forEach((track) => track.stop());
+
+                return;
+            }
 
             answerStreamRef.current = stream;
             answerChunksRef.current = [];
@@ -935,25 +1041,37 @@ function Interview() {
             ) {
                 mimeType = 'audio/webm;codecs=opus';
             } else if (
-                MediaRecorder.isTypeSupported('audio/webm')
+                MediaRecorder.isTypeSupported(
+                    'audio/webm',
+                )
             ) {
                 mimeType = 'audio/webm';
             }
 
             const recorder = mimeType
-                ? new MediaRecorder(stream, { mimeType })
+                ? new MediaRecorder(stream, {
+                    mimeType,
+                })
                 : new MediaRecorder(stream);
 
             answerRecorderRef.current = recorder;
 
             recorder.ondataavailable = (event) => {
-                if (event.data && event.data.size > 0) {
-                    answerChunksRef.current.push(event.data);
+                if (
+                    event.data &&
+                    event.data.size > 0
+                ) {
+                    answerChunksRef.current.push(
+                        event.data,
+                    );
                 }
             };
 
             recorder.onerror = (event) => {
-                console.error('답변 녹음 오류:', event);
+                console.error(
+                    '답변 녹음 오류:',
+                    event,
+                );
 
                 addMessage(
                     'system',
@@ -961,22 +1079,24 @@ function Interview() {
                 );
             };
 
-            /*
-             * 사용자가 종료 버튼을 누르기 전까지 계속 녹음합니다.
-             * 1초마다 녹음 데이터를 chunk로 확보합니다.
-             */
             recorder.start(1000);
 
+            isRecordingAnswerRef.current = true;
             setIsRecordingAnswer(true);
         } catch (error) {
-            console.error('답변 녹음 시작 오류:', error);
+            console.error(
+                '답변 녹음 시작 오류:',
+                error,
+            );
 
             if (error.name === 'NotAllowedError') {
                 addMessage(
                     'system',
                     '마이크 권한이 거부되었습니다. 브라우저 설정에서 마이크를 허용해주세요.',
                 );
-            } else if (error.name === 'NotFoundError') {
+            } else if (
+                error.name === 'NotFoundError'
+            ) {
                 addMessage(
                     'system',
                     '사용할 수 있는 마이크를 찾지 못했습니다.',
@@ -987,6 +1107,9 @@ function Interview() {
                     '답변 녹음을 시작하지 못했습니다.',
                 );
             }
+        } finally {
+            isStartingAnswerRecordingRef.current = false;
+            setIsStartingAnswerRecording(false);
         }
     };
 
@@ -996,12 +1119,14 @@ function Interview() {
         if (
             !recorder ||
             recorder.state === 'inactive' ||
-            !isRecordingAnswer
+            !isRecordingAnswerRef.current
         ) {
             return;
         }
 
+        isRecordingAnswerRef.current = false;
         setIsRecordingAnswer(false);
+        setIsProcessingAnswer(true);
 
         try {
             const audioBlob = await new Promise(
@@ -1112,18 +1237,18 @@ function Interview() {
              * STT 결과와 음성 분석 결과를
              * WebSocket 평가 로직으로 전달
              */
-            websocket.send(
-                JSON.stringify({
-                    type: 'submit_answer',
-                    transcribed_text: transcribedText,
-                    jitter_shaken_percentage:
-                        data.jitter_shaken_percentage ?? 0,
-                    shimmer_shaken_percentage:
-                        data.shimmer_shaken_percentage ?? 0,
-                    speed_difference_wpm:
-                        data.speed_difference_wpm ?? 0,
-                }),
-            );
+            pendingUserAnswerRef.current = {
+                type: 'submit_answer',
+                transcribed_text: transcribedText,
+                jitter_shaken_percentage:
+                    data.jitter_shaken_percentage ?? 0,
+                shimmer_shaken_percentage:
+                    data.shimmer_shaken_percentage ?? 0,
+                speed_difference_wpm:
+                    data.speed_difference_wpm ?? 0,
+            };
+
+            setHasUserAnsweredCurrentQuestion(true);
         } catch (error) {
             console.error('답변 녹음 종료 오류:', error);
 
@@ -1140,7 +1265,11 @@ function Interview() {
             answerStreamRef.current = null;
             answerRecorderRef.current = null;
             answerChunksRef.current = [];
+
+            isRecordingAnswerRef.current = false;
             setIsRecordingAnswer(false);
+        } finally {
+            setIsProcessingAnswer(false);
         }
     };
 
@@ -1154,7 +1283,11 @@ function Interview() {
     const handleSubmitTextAnswer = () => {
         const trimmedAnswer = answerText.trim();
 
-        if (step !== 'answer') {
+        if (
+            step !== 'answer' ||
+            activeCandidateAnswer ||
+            hasUserAnsweredCurrentQuestion
+        ) {
             return;
         }
 
@@ -1181,16 +1314,15 @@ function Interview() {
 
         addMessage('user', trimmedAnswer);
 
-        websocket.send(
-            JSON.stringify({
-                type: 'submit_answer',
-                transcribed_text: trimmedAnswer,
-                jitter_shaken_percentage: 0,
-                shimmer_shaken_percentage: 0,
-                speed_difference_wpm: 0,
-            }),
-        );
+        pendingUserAnswerRef.current = {
+            type: 'submit_answer',
+            transcribed_text: trimmedAnswer,
+            jitter_shaken_percentage: 0,
+            shimmer_shaken_percentage: 0,
+            speed_difference_wpm: 0,
+        };
 
+        setHasUserAnsweredCurrentQuestion(true);
         setAnswerText('');
     };
 
@@ -1200,6 +1332,50 @@ function Interview() {
             handleSubmitTextAnswer();
         }
     };
+
+    useEffect(() => {
+        const pendingAnswer =
+            pendingUserAnswerRef.current;
+
+        if (
+            !pendingAnswer ||
+            !hasUserAnsweredCurrentQuestion ||
+            activeCandidateAnswer ||
+            candidateAnswerQueue.length > 0 ||
+            isRecordingAnswer ||
+            isStartingAnswerRecording ||
+            isProcessingAnswer
+        ) {
+            return;
+        }
+
+        const websocket = websocketRef.current;
+
+        if (
+            !websocket ||
+            websocket.readyState !== WebSocket.OPEN
+        ) {
+            addMessage(
+                'system',
+                '면접 서버 연결이 끊어졌습니다.',
+            );
+
+            return;
+        }
+
+        websocket.send(
+            JSON.stringify(pendingAnswer),
+        );
+
+        pendingUserAnswerRef.current = null;
+    }, [
+        hasUserAnsweredCurrentQuestion,
+        activeCandidateAnswer,
+        candidateAnswerQueue,
+        isRecordingAnswer,
+        isStartingAnswerRecording,
+        isProcessingAnswer,
+    ]);
 
     const renderActionButton = () => {
         if (step === 'loading') {
@@ -1463,21 +1639,42 @@ function Interview() {
                     {answerMode === 'voice' && (
                         <button
                             type="button"
-                            className={`interview-action-button answer-button voice-answer-button ${isRecordingAnswer ? 'recording' : ''
+                            className={`interview-action-button answer-button voice-answer-button ${isRecordingAnswer
+                                ? 'recording'
+                                : ''
                                 }`}
                             onClick={
                                 isRecordingAnswer
                                     ? stopAnswerRecording
                                     : startAnswerRecording
                             }
+                            disabled={
+                                isCandidateSpeaking ||
+                                isStartingAnswerRecording ||
+                                isProcessingAnswer ||
+                                (
+                                    hasUserAnsweredCurrentQuestion &&
+                                    !isRecordingAnswer
+                                )
+                            }
                         >
                             <span className="action-icon">
-                                {isRecordingAnswer ? '■' : '🎙'}
+                                {isRecordingAnswer
+                                    ? '■'
+                                    : '🎙'}
                             </span>
 
                             {isRecordingAnswer
                                 ? '답변 녹음 종료'
-                                : '답변 녹음 시작'}
+                                : isProcessingAnswer
+                                    ? '답변 분석 중...'
+                                    : isStartingAnswerRecording
+                                        ? '마이크 연결 중...'
+                                        : hasUserAnsweredCurrentQuestion
+                                            ? '답변 완료'
+                                            : isCandidateSpeaking
+                                                ? `${activeCandidateAnswer?.name} 답변 중`
+                                                : '답변 녹음 시작'}
                         </button>
                     )}
 
@@ -1490,15 +1687,27 @@ function Interview() {
                                     setAnswerText(event.target.value)
                                 }
                                 onKeyDown={handleAnswerKeyDown}
-                                placeholder="면접 질문에 대한 답변을 입력해주세요."
+                                placeholder={
+                                    isCandidateSpeaking
+                                        ? '다른 지원자의 답변이 끝난 후 입력할 수 있습니다.'
+                                        : '면접 질문에 대한 답변을 입력해주세요.'
+                                }
                                 rows={3}
+                                disabled={
+                                    isCandidateSpeaking ||
+                                    hasUserAnsweredCurrentQuestion
+                                }
                             />
 
                             <button
                                 type="button"
                                 className="answer-submit-button"
                                 onClick={handleSubmitTextAnswer}
-                                disabled={!answerText.trim()}
+                                disabled={
+                                    !answerText.trim() ||
+                                    isCandidateSpeaking ||
+                                    hasUserAnsweredCurrentQuestion
+                                }
                             >
                                 답변 제출
                             </button>
@@ -1520,6 +1729,100 @@ function Interview() {
             </button>
         );
     };
+
+    // 선택된 지원자 답변을 겹치지 않게 순차적으로 시작
+    useEffect(() => {
+        clearTimeout(candidateDelayTimerRef.current);
+
+        if (
+            step !== 'answer' ||
+            activeCandidateAnswer ||
+            candidateAnswerQueue.length === 0 ||
+            isRecordingAnswer ||
+            isStartingAnswerRecording ||
+            isProcessingAnswer
+        ) {
+            return;
+        }
+
+        // 10초 이상 15초 이하
+        const randomDelay =
+            10000 + Math.floor(Math.random() * 5001);
+
+        candidateDelayTimerRef.current = setTimeout(() => {
+            /*
+             * 타이머가 끝나는 순간 사용자가 녹음을 시작했거나
+             * 답변 분석 중일 수 있으므로 다시 확인합니다.
+             */
+            if (
+                isRecordingAnswerRef.current ||
+                isStartingAnswerRecordingRef.current
+            ) {
+                return;
+            }
+
+            setCandidateAnswerQueue((previousQueue) => {
+                const [
+                    nextCandidate,
+                    ...remainingCandidates
+                ] = previousQueue;
+
+                if (!nextCandidate) {
+                    return previousQueue;
+                }
+
+                setActiveCandidateAnswer(nextCandidate);
+                setTypedCandidateText('');
+
+                return remainingCandidates;
+            });
+        }, randomDelay);
+
+        return () => {
+            clearTimeout(candidateDelayTimerRef.current);
+        };
+    }, [
+        step,
+        activeCandidateAnswer,
+        candidateAnswerQueue,
+        isRecordingAnswer,
+        isStartingAnswerRecording,
+        isProcessingAnswer,
+    ]);
+
+    // 지원자 답변을 한 글자씩 표시
+    useEffect(() => {
+        if (!activeCandidateAnswer || isRecordingAnswer) {
+            return;
+        }
+
+        const fullText = activeCandidateAnswer.answer || '';
+        let currentLength = 0;
+
+        candidateTypingTimerRef.current = setInterval(() => {
+            currentLength += 1;
+            setTypedCandidateText(fullText.slice(0, currentLength));
+
+            if (currentLength >= fullText.length) {
+                clearInterval(candidateTypingTimerRef.current);
+
+                candidateFinishTimerRef.current = setTimeout(() => {
+                    addMessage(
+                        'candidate',
+                        fullText,
+                        activeCandidateAnswer.name,
+                    );
+                    setActiveCandidateAnswer(null);
+                    setTypedCandidateText('');
+                }, 650);
+            }
+        }, 55);
+
+        return () => {
+            clearInterval(candidateTypingTimerRef.current);
+            clearTimeout(candidateFinishTimerRef.current);
+        };
+    }, [activeCandidateAnswer, isRecordingAnswer]);
 
     // 페이지 최초 진입 시 면접 세션 생성
     useEffect(() => {
@@ -1543,6 +1846,10 @@ function Interview() {
     // 컴포넌트 종료 시 타이머 및 WebSocket 정리     
     useEffect(() => {
         return () => {
+            clearTimeout(candidateDelayTimerRef.current);
+            clearInterval(candidateTypingTimerRef.current);
+            clearTimeout(candidateFinishTimerRef.current);
+
             if (
                 answerRecorderRef.current &&
                 answerRecorderRef.current.state !== 'inactive'
@@ -1656,11 +1963,24 @@ function Interview() {
                     {step === 'answer' &&
                         (isRecordingAnswer
                             ? '답변 녹음 중'
-                            : `${questionIndex + 1} / ${totalQuestions || '-'
-                            } 질문`)}
+                            : isCandidateSpeaking
+                                ? `${activeCandidateAnswer.name} 답변 중`
+                                : `${questionIndex + 1} / ${totalQuestions || '-'
+                                } 질문`)}
 
                     {step === 'complete' && '면접 완료'}
                 </div>
+
+                {activeCandidateAnswer && (
+                    <div className="candidate-speaking-overlay">
+                        <strong>{activeCandidateAnswer.name}</strong>
+
+                        <div className="candidate-speaking-bubble">
+                            {typedCandidateText}
+                            <span className="typing-cursor">|</span>
+                        </div>
+                    </div>
+                )}
 
                 <div className="left-bottom-area">
                     {resumeName && (
@@ -1684,13 +2004,27 @@ function Interview() {
                                 <strong>
                                     {isRecordingAnswer
                                         ? '답변을 녹음하고 있습니다.'
-                                        : '음성으로 답변해주세요.'}
+                                        : isProcessingAnswer
+                                            ? '답변 음성을 분석하고 있습니다.'
+                                            : isStartingAnswerRecording
+                                                ? '마이크를 연결하고 있습니다.'
+                                                : isCandidateSpeaking
+                                                    ? `${activeCandidateAnswer?.name} 지원자가 답변하고 있습니다.`
+                                                    : hasUserAnsweredCurrentQuestion
+                                                        ? '현재 질문에 대한 답변을 완료했습니다.'
+                                                        : '지금 답변을 시작할 수 있습니다.'}
                                 </strong>
 
                                 <p>
                                     {isRecordingAnswer
                                         ? '답변을 모두 말씀한 후 답변 녹음 종료 버튼을 눌러주세요.'
-                                        : '버튼을 누른 후 면접 질문에 답변해주세요.'}
+                                        : isProcessingAnswer
+                                            ? '분석이 끝나면 다른 지원자의 답변 대기가 다시 시작됩니다.'
+                                            : isCandidateSpeaking
+                                                ? '다른 지원자의 답변이 끝나면 녹음할 수 있습니다.'
+                                                : hasUserAnsweredCurrentQuestion
+                                                    ? '다른 지원자들의 답변이 끝나면 다음 질문으로 넘어갑니다.'
+                                                    : '10~15초 후 다른 지원자가 답변할 수 있으므로 먼저 답하려면 녹음 버튼을 눌러주세요.'}
                                 </p>
                             </div>
                         </div>
@@ -1747,13 +2081,6 @@ function Interview() {
             </section>
 
             <aside className="interview-right">
-                <section className="user-camera-area">
-                    <div className="camera-placeholder">
-                        <span className="camera-icon">▣</span>
-                        <p>사용자 화면</p>
-                    </div>
-                </section>
-
                 <section className="chat-area">
                     <div className="chat-header">
                         <div>
@@ -1762,7 +2089,9 @@ function Interview() {
                             <span>
                                 {step === 'complete'
                                     ? '면접 종료'
-                                    : '면접 진행 중'}
+                                    : selectedCandidates.length > 0
+                                        ? `지원자 ${selectedCandidates.length}명과 함께 진행 중`
+                                        : '면접 진행 중'}
                             </span>
                         </div>
                     </div>
@@ -1783,6 +2112,12 @@ function Interview() {
                                 {message.type === 'user' && (
                                     <span className="message-name">
                                         나
+                                    </span>
+                                )}
+
+                                {message.type === 'candidate' && (
+                                    <span className="message-name">
+                                        {message.name}
                                     </span>
                                 )}
 

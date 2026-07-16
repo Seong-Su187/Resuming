@@ -19,3 +19,215 @@
     justify-content: center;
     color: #fff;
 }
+
+/* 면접자 선택 화면 */
+.start-page {
+    width: 100vw;
+    min-height: 100vh;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    background: #101713;
+}
+
+.candidate-selection {
+    width: min(1180px, calc(100% - 80px));
+    padding: 60px 0;
+}
+
+.candidate-selection-header {
+    margin-bottom: 36px;
+    text-align: center;
+    color: #fff;
+}
+
+.candidate-selection-header span {
+    display: block;
+    margin-bottom: 12px;
+
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: #5d8f78;
+}
+
+.candidate-selection-header h1 {
+    margin: 0;
+
+    font-size: 36px;
+    line-height: 1.4;
+}
+
+.candidate-selection-header p {
+    margin: 14px 0 0;
+
+    font-size: 15px;
+    line-height: 1.7;
+    color: rgba(255, 255, 255, 0.65);
+}
+
+.candidate-list {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+}
+
+.candidate-card {
+    overflow: hidden;
+    padding: 0;
+
+    border: 2px solid transparent;
+    border-radius: 22px;
+
+    background: #fff;
+
+    text-align: left;
+    font-family: inherit;
+
+    cursor: pointer;
+
+    transition:
+        transform 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.candidate-card:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 18px 40px rgba(0, 0, 0, 0.3);
+}
+
+.candidate-card.selected {
+    border-color: #5d8f78;
+
+    box-shadow:
+        0 0 0 4px rgba(93, 143, 120, 0.2),
+        0 18px 40px rgba(0, 0, 0, 0.3);
+}
+
+.candidate-image-box {
+    position: relative;
+
+    width: 100%;
+    height: 330px;
+
+    background: #e8eeea;
+}
+
+.candidate-image-box img {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    object-position: center top;
+}
+
+.candidate-check {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+
+    width: 34px;
+    height: 34px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border: 2px solid rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+
+    background: rgba(0, 0, 0, 0.25);
+    color: #fff;
+
+    font-size: 18px;
+    font-weight: 700;
+}
+
+.candidate-card.selected .candidate-check {
+    border-color: #5d8f78;
+    background: #5d8f78;
+}
+
+.candidate-content {
+    min-height: 170px;
+    padding: 22px;
+}
+
+.candidate-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: #5d8f78;
+}
+
+.candidate-content h2 {
+    margin: 8px 0 12px;
+
+    font-size: 23px;
+    color: #17211c;
+}
+
+.candidate-content p {
+    margin: 0;
+
+    font-size: 14px;
+    line-height: 1.7;
+    color: #68726d;
+}
+
+.candidate-selection-footer {
+    margin-top: 32px;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.candidate-selection-footer p {
+    margin: 0;
+}
+
+.candidate-selection-footer strong {
+    color: #5d8f78;
+}
+
+.candidate-start-button {
+    min-width: 210px;
+    padding: 16px 24px;
+
+    border: 0;
+    border-radius: 14px;
+
+    background: #5d8f78;
+    color: #fff;
+
+    font-size: 15px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.candidate-start-button:disabled {
+    background: #657069;
+    cursor: not-allowed;
+}
+
+.candidate-status {
+    min-height: 300px;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    color: #fff;
+}
+
+.candidate-error {
+    color: #ff9e9e;
+}
