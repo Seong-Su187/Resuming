@@ -1,23 +1,152 @@
 /* main.css */
-.main-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 24px;
+/* 전체 페이지: 세로 스크롤 + 섹션 단위 스냅 */
+.main-page {
+    width: 100vw;
+    height: 100vh;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
 }
 
-.main-card h1 {
+/* 각각의 화면을 한 페이지 크기로 설정 */
+.main-card {
+    position: relative;
+
+    width: 100vw;
+    height: 100vh;
+    min-height: 100vh;
+
+    overflow: hidden;
+
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+}
+
+/* 첫 번째 섹션 영상 */
+.main-video {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    padding: 0;
     margin: 0;
 }
 
-.main-buttons {
-    display: flex;
-    gap: 12px;
+/* 영상 위에 올라가는 콘텐츠 */
+.main-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    pointer-events: none;
 }
 
-.main-card button {
-    padding: 12px 24px;
-    border: none;
-    border-radius: 8px;
+/* 멘트 영역 */
+.main-message {
+    position: absolute;
+
+    top: 50%;
+    left: 44%;
+
+    transform: translate(-50%, -50%);
+
+    pointer-events: auto;
+
+    font-size: 24px;
+    line-height: 1.7;
+
+    word-break: keep-all;
+    overflow-wrap: normal;
+
+    pointer-events: auto;
+}
+
+.main-message-image {
+    width: 30px;
+    height: 30px;
+}
+
+
+/* 버튼 영역 */
+.main-actions {
+    text-align: center;
+}
+
+/* 로그인 상태일 때 버튼 묶음 */
+.main-buttons {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+/* 메인 버튼 공통 */
+.main-button {
+    width: 150px;
+    padding: 14px 28px;
+
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    border-radius: 999px;
+
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+
+    background: rgba(12, 17, 27, 0.55);
+    backdrop-filter: blur(10px);
+
     cursor: pointer;
+
+    transition:
+        transform 0.2s ease,
+        background 0.2s ease;
+}
+
+.main-button:hover {
+    transform: translateY(-2px);
+    background: rgba(12, 17, 27, 0.75);
+}
+
+.main-button.primary {
+    border-color: transparent;
+    background: #5d8f78;
+}
+
+.main-button.primary:hover {
+    background: #4e7d68;
+}
+
+/* 영상 후반부 멘트 등장 효과 */
+.main-message-item {
+    opacity: 0;
+    visibility: hidden;
+
+    transform: translateY(24px);
+
+    filter: blur(5px);
+
+    transition:
+        opacity 0.8s ease,
+        transform 0.8s ease,
+        filter 0.8s ease,
+        visibility 0.8s;
+}
+
+.main-message-item.visible {
+    opacity: 1;
+    visibility: visible;
+
+    transform: translateY(0);
+
+    filter: blur(0);
 }

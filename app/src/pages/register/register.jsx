@@ -98,7 +98,7 @@ function Register() {
     };
 
     return (
-        <main className="page">
+        <main className="register-page ">
             <div
                 className="worry-bubbles"
                 aria-hidden="true"
@@ -218,7 +218,7 @@ function Register() {
 
                 <p className="login-link">
                     이미 계정이 있으신가요?
-                    <Link to="/">로그인</Link>
+                    <Link to="/login">로그인</Link>
                 </p>
             </section>
         </main>
