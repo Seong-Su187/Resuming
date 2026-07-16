@@ -1,0 +1,23 @@
+[
+    {
+        "id": 1,
+        "name": "김도윤",
+        "gender": "남",
+        "description": "질문의 의도를 빠르게 파악하고 경험을 논리적으로 설명하는 지원자",
+        "image_url": "/assets/candidate1.png"
+    },
+    {
+        "id": 2,
+        "name": "이서연",
+        "gender": "여",
+        "description": "기본적인 답변은 가능하지만 구체적인 경험 설명이 다소 부족한 지원자",
+        "image_url": "/assets/candidate2.png"
+    },
+    {
+        "id": 3,
+        "name": "박준호",
+        "gender": "남",
+        "description": "질문은 이해하지만 긴장해서 답변이 자주 끊기고 핵심을 놓치는 지원자",
+        "image_url": "/assets/candidate3.png"
+    }
+]
