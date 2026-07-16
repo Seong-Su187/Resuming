@@ -12,6 +12,9 @@ function Interview() {
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
+    const candidateDelayTimerRef = useRef(null);
+    const candidateTypingTimerRef = useRef(null);
+    const candidateFinishTimerRef = useRef(null);
 
     const baselineRecorderRef = useRef(null);
     const baselineStreamRef = useRef(null);
@@ -30,6 +33,19 @@ function Interview() {
     const [resumeName, setResumeName] = useState('');
     const [questionIndex, setQuestionIndex] = useState(0);
     const [totalQuestions, setTotalQuestions] = useState(0);
+    const [selectedCandidates] = useState(() => {
+        try {
+            return JSON.parse(
+                sessionStorage.getItem('selectedCandidates') || '[]',
+            );
+        } catch (error) {
+            console.error('선택 면접자 정보 파싱 오류:', error);
+            return [];
+        }
+    });
+    const [candidateAnswerQueue, setCandidateAnswerQueue] = useState([]);
+    const [activeCandidateAnswer, setActiveCandidateAnswer] = useState(null);
+    const [typedCandidateText, setTypedCandidateText] = useState('');
 
     const [interviewerVideoUrl, setInterviewerVideoUrl] = useState(null);
     const interviewerVideoUrlRef = useRef(null);
@@ -81,15 +97,35 @@ function Interview() {
         },
     ]);
 
-    const addMessage = (type, text) => {
+    const isCandidateSpeaking = Boolean(activeCandidateAnswer);
+    const isCandidateTurnPending =
+        isCandidateSpeaking || candidateAnswerQueue.length > 0;
+
+    const addMessage = (type, text, name = '') => {
         setMessages((prev) => [
             ...prev,
             {
                 id: `${Date.now()}-${Math.random()}`,
                 type,
                 text,
+                name,
             },
         ]);
+    };
+
+    const shuffleCandidateAnswers = (answers) => {
+        const shuffled = [...answers];
+
+        for (let index = shuffled.length - 1; index > 0; index -= 1) {
+            const randomIndex = Math.floor(Math.random() * (index + 1));
+
+            [shuffled[index], shuffled[randomIndex]] = [
+                shuffled[randomIndex],
+                shuffled[index],
+            ];
+        }
+
+        return shuffled;
     };
 
     // base64로 전달받은 mp4 데이터를 브라우저에서 재생 가능한 URL로 변환
@@ -804,6 +840,7 @@ function Interview() {
                     websocket.send(
                         JSON.stringify({
                             type: 'start_interview',
+                            selected_candidates: selectedCandidates,
                         }),
                     );
 
@@ -821,6 +858,14 @@ function Interview() {
                     );
 
                     setInterviewerVideo(data.avatar_video_base64 || null);
+
+                    setActiveCandidateAnswer(null);
+                    setTypedCandidateText('');
+                    setCandidateAnswerQueue(
+                        shuffleCandidateAnswers(
+                            data.candidate_answers ?? [],
+                        ),
+                    );
 
                     return;
                 }
@@ -889,7 +934,11 @@ function Interview() {
     };
 
     const startAnswerRecording = async () => {
-        if (step !== 'answer' || isRecordingAnswer) {
+        if (
+            step !== 'answer' ||
+            isRecordingAnswer ||
+            isCandidateTurnPending
+        ) {
             return;
         }
 
@@ -1154,7 +1203,7 @@ function Interview() {
     const handleSubmitTextAnswer = () => {
         const trimmedAnswer = answerText.trim();
 
-        if (step !== 'answer') {
+        if (step !== 'answer' || isCandidateTurnPending) {
             return;
         }
 
@@ -1470,6 +1519,10 @@ function Interview() {
                                     ? stopAnswerRecording
                                     : startAnswerRecording
                             }
+                            disabled={
+                                !isRecordingAnswer &&
+                                isCandidateTurnPending
+                            }
                         >
                             <span className="action-icon">
                                 {isRecordingAnswer ? '■' : '🎙'}
@@ -1477,7 +1530,9 @@ function Interview() {
 
                             {isRecordingAnswer
                                 ? '답변 녹음 종료'
-                                : '답변 녹음 시작'}
+                                : isCandidateTurnPending
+                                    ? '다른 지원자 답변 중'
+                                    : '답변 녹음 시작'}
                         </button>
                     )}
 
@@ -1490,15 +1545,23 @@ function Interview() {
                                     setAnswerText(event.target.value)
                                 }
                                 onKeyDown={handleAnswerKeyDown}
-                                placeholder="면접 질문에 대한 답변을 입력해주세요."
+                                placeholder={
+                                    isCandidateTurnPending
+                                        ? '다른 지원자의 답변이 끝난 후 입력할 수 있습니다.'
+                                        : '면접 질문에 대한 답변을 입력해주세요.'
+                                }
                                 rows={3}
+                                disabled={isCandidateTurnPending}
                             />
 
                             <button
                                 type="button"
                                 className="answer-submit-button"
                                 onClick={handleSubmitTextAnswer}
-                                disabled={!answerText.trim()}
+                                disabled={
+                                    !answerText.trim() ||
+                                    isCandidateTurnPending
+                                }
                             >
                                 답변 제출
                             </button>
@@ -1520,6 +1583,77 @@ function Interview() {
             </button>
         );
     };
+
+    // 선택된 지원자 답변을 겹치지 않게 순차적으로 시작
+    useEffect(() => {
+        if (
+            step !== 'answer' ||
+            isRecordingAnswer ||
+            activeCandidateAnswer ||
+            candidateAnswerQueue.length === 0
+        ) {
+            return;
+        }
+
+        const randomDelay = 900 + Math.floor(Math.random() * 1300);
+
+        candidateDelayTimerRef.current = setTimeout(() => {
+            setCandidateAnswerQueue((previousQueue) => {
+                const [nextCandidate, ...remainingCandidates] =
+                    previousQueue;
+
+                if (nextCandidate) {
+                    setActiveCandidateAnswer(nextCandidate);
+                    setTypedCandidateText('');
+                }
+
+                return remainingCandidates;
+            });
+        }, randomDelay);
+
+        return () => {
+            clearTimeout(candidateDelayTimerRef.current);
+        };
+    }, [
+        step,
+        isRecordingAnswer,
+        activeCandidateAnswer,
+        candidateAnswerQueue,
+    ]);
+
+    // 지원자 답변을 한 글자씩 표시
+    useEffect(() => {
+        if (!activeCandidateAnswer || isRecordingAnswer) {
+            return;
+        }
+
+        const fullText = activeCandidateAnswer.answer || '';
+        let currentLength = 0;
+
+        candidateTypingTimerRef.current = setInterval(() => {
+            currentLength += 1;
+            setTypedCandidateText(fullText.slice(0, currentLength));
+
+            if (currentLength >= fullText.length) {
+                clearInterval(candidateTypingTimerRef.current);
+
+                candidateFinishTimerRef.current = setTimeout(() => {
+                    addMessage(
+                        'candidate',
+                        fullText,
+                        activeCandidateAnswer.name,
+                    );
+                    setActiveCandidateAnswer(null);
+                    setTypedCandidateText('');
+                }, 650);
+            }
+        }, 32);
+
+        return () => {
+            clearInterval(candidateTypingTimerRef.current);
+            clearTimeout(candidateFinishTimerRef.current);
+        };
+    }, [activeCandidateAnswer, isRecordingAnswer]);
 
     // 페이지 최초 진입 시 면접 세션 생성
     useEffect(() => {
@@ -1543,6 +1677,10 @@ function Interview() {
     // 컴포넌트 종료 시 타이머 및 WebSocket 정리     
     useEffect(() => {
         return () => {
+            clearTimeout(candidateDelayTimerRef.current);
+            clearInterval(candidateTypingTimerRef.current);
+            clearTimeout(candidateFinishTimerRef.current);
+
             if (
                 answerRecorderRef.current &&
                 answerRecorderRef.current.state !== 'inactive'
@@ -1656,11 +1794,24 @@ function Interview() {
                     {step === 'answer' &&
                         (isRecordingAnswer
                             ? '답변 녹음 중'
-                            : `${questionIndex + 1} / ${totalQuestions || '-'
-                            } 질문`)}
+                            : isCandidateSpeaking
+                                ? `${activeCandidateAnswer.name} 답변 중`
+                                : `${questionIndex + 1} / ${totalQuestions || '-'
+                                } 질문`)}
 
                     {step === 'complete' && '면접 완료'}
                 </div>
+
+                {activeCandidateAnswer && (
+                    <div className="candidate-speaking-overlay">
+                        <strong>{activeCandidateAnswer.name}</strong>
+
+                        <div className="candidate-speaking-bubble">
+                            {typedCandidateText}
+                            <span className="typing-cursor">|</span>
+                        </div>
+                    </div>
+                )}
 
                 <div className="left-bottom-area">
                     {resumeName && (
@@ -1684,13 +1835,17 @@ function Interview() {
                                 <strong>
                                     {isRecordingAnswer
                                         ? '답변을 녹음하고 있습니다.'
-                                        : '음성으로 답변해주세요.'}
+                                        : isCandidateTurnPending
+                                            ? '다른 지원자가 답변하고 있습니다.'
+                                            : '음성으로 답변해주세요.'}
                                 </strong>
 
                                 <p>
                                     {isRecordingAnswer
                                         ? '답변을 모두 말씀한 후 답변 녹음 종료 버튼을 눌러주세요.'
-                                        : '버튼을 누른 후 면접 질문에 답변해주세요.'}
+                                        : isCandidateTurnPending
+                                            ? '답변이 끝나면 녹음 버튼이 활성화됩니다.'
+                                            : '버튼을 누른 후 면접 질문에 답변해주세요.'}
                                 </p>
                             </div>
                         </div>
@@ -1747,13 +1902,6 @@ function Interview() {
             </section>
 
             <aside className="interview-right">
-                <section className="user-camera-area">
-                    <div className="camera-placeholder">
-                        <span className="camera-icon">▣</span>
-                        <p>사용자 화면</p>
-                    </div>
-                </section>
-
                 <section className="chat-area">
                     <div className="chat-header">
                         <div>
@@ -1762,7 +1910,9 @@ function Interview() {
                             <span>
                                 {step === 'complete'
                                     ? '면접 종료'
-                                    : '면접 진행 중'}
+                                    : selectedCandidates.length > 0
+                                        ? `지원자 ${selectedCandidates.length}명과 함께 진행 중`
+                                        : '면접 진행 중'}
                             </span>
                         </div>
                     </div>
@@ -1783,6 +1933,12 @@ function Interview() {
                                 {message.type === 'user' && (
                                     <span className="message-name">
                                         나
+                                    </span>
+                                )}
+
+                                {message.type === 'candidate' && (
+                                    <span className="message-name">
+                                        {message.name}
                                     </span>
                                 )}
 

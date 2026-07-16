@@ -106,16 +106,71 @@ AVATAR_VOICE_MAP = {
     "middle_aged": "onyx",
 }
 
-def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
+def generate_text_to_speech(
+    text: str,
+    output_path: str,
+    voice: str = "onyx",
+):
     """OpenAI TTS API를 활용한 텍스트 -> 음성 생성"""
     try:
         response = client.audio.speech.create(
             model="tts-1",
             voice=voice,
-            input=text
+            input=text,
         )
+
         response.stream_to_file(output_path)
+
         return output_path
+
     except Exception as e:
         print(f"TTS Error: {str(e)}")
         return None
+
+
+def generate_candidate_answer_with_llm(
+    question: str,
+    candidate_name: str,
+    candidate_description: str,
+) -> str:
+    """지원자 성향을 반영해 면접 답변을 생성합니다."""
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            temperature=0.75,
+            max_tokens=500,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "당신은 실제 다대일 면접에 참여한 지원자입니다. "
+                        "한국어 존댓말로 답변하세요. "
+                        "설정된 지원자의 역량보다 지나치게 잘하거나 못하지 마세요. "
+                        "답변은 3~6문장으로 작성하세요. "
+                        "지원자의 이름이나 설정을 직접 언급하지 마세요. "
+                        "면접 답변만 출력하세요."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        f"[지원자 이름]\n{candidate_name}\n\n"
+                        f"[지원자 특성]\n{candidate_description}\n\n"
+                        f"[면접 질문]\n{question}\n\n"
+                        "위 특성에 맞는 실제 면접 답변을 작성하세요."
+                    ),
+                },
+            ],
+        )
+
+        answer = response.choices[0].message.content
+
+        return answer.strip() if answer else ""
+
+    except Exception as e:
+        print(
+            f"Candidate Answer Generation Error "
+            f"({candidate_name}): {str(e)}"
+        )
+
+        return "죄송하지만 질문에 대한 답변을 바로 정리하지 못했습니다."
