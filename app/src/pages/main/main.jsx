@@ -8,10 +8,63 @@ function Main({ mainVideoUrl }) {
     const videoRef = useRef(null);
     const messageTimerRef = useRef([]);
     const [messageStep, setMessageStep] = useState(0);
+    const [isFirstVisit] = useState(() => {
+        return sessionStorage.getItem('mainVideoPlayed') !== 'true';
+    });
+
+    useEffect(() => {
+        if (isFirstVisit) {
+            sessionStorage.setItem('mainVideoPlayed', 'true');
+        }
+    }, [isFirstVisit]);
+
+    useEffect(() => {
+        const video = videoRef.current;
+
+        if (!video || !mainVideoUrl) {
+            return;
+        }
+
+        video.volume = 0.1;
+
+        // 처음 접속: 영상 재생 없이 마지막 화면 표시
+        if (isFirstVisit) {
+            video.muted = true;
+            setMessageStep(4);
+            return;
+        }
+
+        // 재접속: 영상 정상 재생
+        video.muted = false;
+
+        video.play().catch(() => {
+            // 브라우저가 소리 있는 자동재생을 막으면 음소거 재생
+            video.muted = true;
+
+            video.play().catch((error) => {
+                console.error('영상 자동재생 실패:', error);
+            });
+        });
+    }, [mainVideoUrl, isFirstVisit]);
+
+    const handleVideoLoadedMetadata = () => {
+        const video = videoRef.current;
+
+        if (!video || !isFirstVisit) {
+            return;
+        }
+
+        // 영상의 완전한 끝보다 약간 앞쪽으로 이동
+        video.currentTime = Math.max(video.duration - 0.05, 0);
+        video.pause();
+
+        setMessageStep(4);
+    };
 
     const handleVideoPlay = () => {
-        if (videoRef.current) {
-            videoRef.current.muted = false;
+        if (isFirstVisit) {
+            setMessageStep(4);
+            return;
         }
 
         messageTimerRef.current.forEach((timer) => {
@@ -62,13 +115,12 @@ function Main({ mainVideoUrl }) {
                     ref={videoRef}
                     className="main-video"
                     src={mainVideoUrl}
-                    autoPlay
-                    muted
+                    poster="/assets/main-video-last-frame.png"
+                    autoPlay={!isFirstVisit}
+                    muted={isFirstVisit}
                     playsInline
                     onPlay={handleVideoPlay}
-                    onLoadedMetadata={(event) => {
-                        event.currentTarget.volume = 0.1;
-                    }}
+                    onLoadedMetadata={handleVideoLoadedMetadata}
                 />
 
                 <div className="main-overlay">
@@ -100,9 +152,9 @@ function Main({ mainVideoUrl }) {
                             <span>ESUMING</span>
                         </p>
 
-                        <div className={`main-actions main-message-item ${messageStep >= 4 ? 'visible' : ''}`} >
+                        <p className={`main-actions main-message-item ${messageStep >= 4 ? 'visible' : ''}`} >
                             {isLoggedIn ? (
-                                <div className="main-buttons">
+                                <span className="main-buttons">
                                     <button
                                         type="button"
                                         className="main-button primary"
@@ -118,7 +170,7 @@ function Main({ mainVideoUrl }) {
                                     >
                                         로그아웃
                                     </button>
-                                </div>
+                                </span>
                             ) : (
                                 <button
                                     type="button"
@@ -128,7 +180,7 @@ function Main({ mainVideoUrl }) {
                                     로그인
                                 </button>
                             )}
-                        </div>
+                        </p>
                     </div>
                 </div>
             </section>
