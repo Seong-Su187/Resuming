@@ -1,5 +1,6 @@
 import os
 import json
+import random
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -13,14 +14,27 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-def generate_resume_based_questions(job_category: str, resume_text: str) -> list[str]:
-    """이력서 기반 맞춤형 면접 질문 5개 생성"""
+def generate_resume_based_questions(job_category: str, resume_text: str) -> list:
+    """
+    이력서 기반 맞춤형 면접 질문 5개 생성 (전문 지식 / 인사 담당 면접관 랜덤 분리)
+    각 질문마다 어떤 아바타(목소리)를 사용할지 JSON 형태로 매핑하여 반환합니다.
+    """
     try:
         truncated_resume = resume_text[:4000] if resume_text else "이력서 정보 없음"
         prompt_system = (
-            "당신은 10년 차 전문 채용 면접관입니다. "
-            "제공된 지원자의 이력서를 꼼꼼히 분석하고, 지원 직무에 맞춘 날카롭고 구체적인 실무/경험 기반 면접 질문 딱 5개를 작성해주세요. "
-            "부가적인 인사말이나 번호 매기기 없이, 오직 질문만 줄바꿈(Enter)으로 구분해서 출력해주세요."
+            "당신은 10년 차 채용 전문가입니다. "
+            "제공된 지원자의 이력서를 분석하여 총 5개의 맞춤형 면접 질문을 생성하세요.\n"
+            "면접에는 2명의 면접관이 참여하며, 각자의 역할에 맞는 질문을 분리해서 작성해야 합니다:\n"
+            "1. 'technical' (전문 지식 면접관): 이력서 기반의 실무, 기술 깊이, 프로젝트 경험, 문제 해결 과정을 묻습니다. (avatar: 'middle_aged')\n"
+            "2. 'hr' (인사 담당 면접관): 회사 지원 동기, 입사 후 우리 회사에서 해내고 싶은 목표, 팀워크, 인성 및 컬처핏을 묻습니다. (avatar: 'young')\n\n"
+            "5개의 질문 중 3개는 'technical', 2개는 'hr' 유형으로 구성하세요.\n"
+            "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
+            "{\n"
+            '  "questions": [\n'
+            '    {"question": "지원하신 직무와 관련하여...", "type": "technical", "avatar": "middle_aged"},\n'
+            '    {"question": "우리 회사에 지원하게 된 구체적인 동기는...", "type": "hr", "avatar": "young"}\n'
+            "  ]\n"
+            "}"
         )
         prompt_user = f"[지원 직무]: {job_category}\n\n[이력서 내용]:\n{truncated_resume}"
 
@@ -31,25 +45,34 @@ def generate_resume_based_questions(job_category: str, resume_text: str) -> list
                 {"role": "user", "content": prompt_user}
             ],
             temperature=0.7,
-            max_tokens=800
+            response_format={"type": "json_object"}
         )
         
-        content = response.choices[0].message.content
-        questions = [q.strip() for q in content.split('\n') if q.strip()]
+        result_json = json.loads(response.choices[0].message.content)
+        questions = result_json.get("questions", [])
         
         if len(questions) < 5:
-            questions.extend(["추가로 본인의 강점을 설명해 주실 수 있나요?"] * (5 - len(questions)))
+            questions.extend([
+                {"question": "추가로 본인의 강점을 설명해 주실 수 있나요?", "type": "hr", "avatar": "young"}
+            ] * (5 - len(questions)))
             
-        return questions[:5]
+        questions = questions[:5]
+        
+        # 질문 순서를 랜덤하게 섞어서 매번 면접의 흐름을 다이나믹하게 만듭니다.
+        random.shuffle(questions)
+        
+        return questions
     except Exception as e:
         print(f"LLM Generation Error: {str(e)}")
-        return [
-            "간단한 자기소개 부탁드립니다.",
-            "지원 직무를 선택한 동기는 무엇인가요?",
-            "이력서에 적힌 프로젝트 중 가장 기억에 남는 것은 무엇인가요?",
-            "팀원과 갈등이 있었을 때 어떻게 해결하셨나요?",
-            "마지막으로 하고 싶은 말이 있으신가요?"
+        fallback = [
+            {"question": "간단한 자기소개와 함께 지원 동기를 말씀해 주세요.", "type": "hr", "avatar": "young"},
+            {"question": "이력서에 적힌 프로젝트 중 가장 기술적으로 어려웠던 부분은 무엇인가요?", "type": "technical", "avatar": "middle_aged"},
+            {"question": "팀원과 의견 충돌이 발생했을 때 어떻게 해결하시나요?", "type": "hr", "avatar": "young"},
+            {"question": "지원 직무와 관련된 본인만의 강점은 무엇인가요?", "type": "technical", "avatar": "middle_aged"},
+            {"question": "입사 후 3년 뒤, 우리 회사에서 어떤 역할을 해내고 싶으신가요?", "type": "hr", "avatar": "young"}
         ]
+        random.shuffle(fallback)
+        return fallback
 
 def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str = "") -> dict:
     """
@@ -120,7 +143,6 @@ def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
     except Exception as e:
         print(f"TTS Error: {str(e)}")
         return None
-
 
 def generate_candidate_answer_with_llm(
     question: str,

@@ -123,7 +123,7 @@ async def build_candidate_answers(
 
 async def send_next_question(
     websocket: WebSocket,
-    question_text: str,
+    question_data: dict | str,
     current_index: int,
     total_questions: int,
     selected_candidates: list[dict],
@@ -132,6 +132,12 @@ async def send_next_question(
     질문 영상과 선택된 지원자들의 질문별 답변을 함께 전송합니다.
     프론트엔드는 candidate_answers를 무작위 순서와 간격으로 재생합니다.
     """
+    # 과거 호환성 및 객체형 데이터 분기 처리
+    question_text = question_data if isinstance(question_data, str) else question_data.get("question", "")
+    q_type = "technical" if isinstance(question_data, str) else question_data.get("type", "technical")
+    avatar = "middle_aged" if isinstance(question_data, str) else question_data.get("avatar", "middle_aged")
+    voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
+
     candidate_answers_task = asyncio.create_task(
         build_candidate_answers(
             question_text,
@@ -144,6 +150,8 @@ async def send_next_question(
         "current_index": current_index,
         "total_questions": total_questions,
         "question_text": question_text,
+        "interviewer_type": q_type,
+        "avatar": avatar,
         "avatar_video_base64": None,
         "candidate_answers": [],
     }
@@ -151,7 +159,8 @@ async def send_next_question(
     tts_path = f"temp_question_tts_{uuid.uuid4()}.mp3"
 
     try:
-        generate_text_to_speech(question_text, tts_path)
+        # 분리된 아바타의 목소리(voice)로 TTS 생성
+        generate_text_to_speech(question_text, tts_path, voice=voice)
 
         if os.path.exists(tts_path):
             video_bytes = await synthesize_avatar_video(tts_path)
@@ -224,7 +233,7 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
             
         job_category = session_info[0]
 
-        # 3. LLM을 통한 맞춤형 5가지 질문 생성
+        # 3. LLM을 통한 맞춤형 5가지 질문 생성 (객체 형태)
         generated_questions = generate_resume_based_questions(job_category, resume_text)
 
         # 4. 추출된 이력서와 생성된 질문 배열을 DB에 저장
@@ -378,7 +387,6 @@ def use_existing_resume(
             detail=f"기존 이력서 사용 중 오류 발생: {str(e)}"
         )
     
-
 
 @router.get("/baseline-voice/{user_id}")
 def get_baseline_voice(
@@ -839,7 +847,9 @@ async def websocket_interview_endpoint(
                     0.0,
                 )
 
-                current_question = questions_list[current_index]
+                current_q_data = questions_list[current_index]
+                # 과거 호환성 고려 (단순 문자열 배열일 경우 대비)
+                current_question_text = current_q_data if isinstance(current_q_data, str) else current_q_data.get("question", "")
 
                 rag_result = db.execute(
                     text("""
@@ -858,7 +868,7 @@ async def websocket_interview_endpoint(
                 )
 
                 evaluation = evaluate_answer_with_llm(
-                    current_question,
+                    current_question_text,
                     user_text,
                     ideal_answer,
                 )
@@ -897,7 +907,7 @@ async def websocket_interview_endpoint(
                     log_query,
                     {
                         "session_id": session_id,
-                        "question": current_question,
+                        "question": current_question_text,
                         "transcribed_text": user_text,
                         "jitter": jitter_delta,
                         "shimmer": shimmer_delta,
@@ -910,7 +920,7 @@ async def websocket_interview_endpoint(
 
                 await websocket.send_json({
                     "type": "qa_feedback",
-                    "question": current_question,
+                    "question": current_question_text,
                     "score": earned_score,
                     "feedback": feedback_text,
                 })
