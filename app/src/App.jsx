@@ -7,6 +7,7 @@ import Register from './pages/register/register';
 import Start from './pages/start/start';
 import Main from './pages/main/main';
 import Interview from './pages/interview/interview';
+import Mypage from './pages/mypage/mypage';
 
 function App() {
   const [startVideoUrl, setStartVideoUrl] = useState(null);
@@ -65,6 +66,7 @@ function App() {
           element={<Start startVideoUrl={startVideoUrl} />}
         />
         <Route path="/interview" element={<Interview />} />
+        <Route path="/mypage" element={<Mypage />} />
       </Routes>
     </Router>
   );

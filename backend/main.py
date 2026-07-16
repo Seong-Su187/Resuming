@@ -2,7 +2,7 @@ import os
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import health, profiles, interviews, auth
+from routers import health, profiles, interviews, auth, qa_logs
 
 app = FastAPI(
     title="AI 면접 도우미 백엔드 API",
@@ -24,6 +24,7 @@ app.include_router(health.router)
 app.include_router(auth.router)       # 로그인/회원가입 라우터 추가
 app.include_router(profiles.router)
 app.include_router(interviews.router)
+app.include_router(qa_logs.router)
 
 
 if __name__ == "__main__":
