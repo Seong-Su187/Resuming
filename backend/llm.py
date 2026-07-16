@@ -106,23 +106,17 @@ AVATAR_VOICE_MAP = {
     "middle_aged": "onyx",
 }
 
-def generate_text_to_speech(
-    text: str,
-    output_path: str,
-    voice: str = "onyx",
-):
+def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
     """OpenAI TTS API를 활용한 텍스트 -> 음성 생성"""
     try:
         response = client.audio.speech.create(
             model="tts-1",
             voice=voice,
-            input=text,
+            input=text
         )
-
         response.stream_to_file(output_path)
 
         return output_path
-
     except Exception as e:
         print(f"TTS Error: {str(e)}")
         return None
