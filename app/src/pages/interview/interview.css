@@ -13,7 +13,6 @@
     min-width: 0;
     height: 100vh;
     overflow: hidden;
-    background-image: url('/assets/bg.png');
     background-repeat: no-repeat;
     background-size: cover;
     background-position: left center;
@@ -441,7 +440,7 @@
     object-fit: cover;
     transform: scaleX(-1);
     /* 좌우 반전(거울 모드) */
-    opacity: 0;
+    opacity: 1;
     transition: opacity 0.3s ease;
 }
 
@@ -461,6 +460,48 @@
 
 .camera-icon {
     font-size: 24px;
+}
+
+.camera-toggle-button {
+    position: absolute;
+    right: 14px;
+    bottom: 14px;
+    z-index: 3;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 42px;
+    height: 42px;
+
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.24);
+    border-radius: 50%;
+
+    color: #ffffff;
+    font-size: 18px;
+
+    background: rgba(15, 18, 27, 0.72);
+    backdrop-filter: blur(10px);
+
+    cursor: pointer;
+
+    transition:
+        transform 0.15s ease,
+        background 0.15s ease;
+}
+
+.camera-toggle-button:hover {
+    transform: scale(1.08);
+}
+
+.camera-toggle-button.camera-on {
+    background: rgba(15, 18, 27, 0.72);
+}
+
+.camera-toggle-button.camera-off {
+    background: rgba(215, 55, 73, 0.88);
 }
 
 /* ------------------------ */

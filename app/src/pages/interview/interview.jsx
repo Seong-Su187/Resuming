@@ -16,6 +16,7 @@ function Interview() {
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
     const userVideoRef = useRef(null); // 추가된 사용자 비디오 Ref
+    const userCameraStreamRef = useRef(null);
 
     const candidateDelayTimerRef = useRef(null);
 
@@ -67,9 +68,13 @@ function Interview() {
     const [candidateTransition, setCandidateTransition] = useState('');
     const [isCandidateSceneReady, setIsCandidateSceneReady] = useState(false);
 
-    const interviewerVideoRef = useRef(null);
+    const interviewerDefaultVideoRef = useRef(null);
+    const interviewerStreamVideoRef = useRef(null);
     const interviewerVideoUrlRef = useRef(null);
     const interviewerStreamAbortRef = useRef(null);
+
+    const [isInterviewerStreamVisible, setIsInterviewerStreamVisible] =
+        useState(false);
 
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
@@ -177,13 +182,20 @@ function Interview() {
     };
 
     const restoreDefaultInterviewerVideo = () => {
-        const videoEl = interviewerVideoRef.current;
+        const defaultVideo =
+            interviewerDefaultVideoRef.current;
 
-        if (!videoEl) {
-            return;
-        }
+        const streamVideo =
+            interviewerStreamVideoRef.current;
 
         isInterviewerStreamPlayingRef.current = false;
+        setIsInterviewerStreamVisible(false);
+
+        if (streamVideo) {
+            streamVideo.pause();
+            streamVideo.removeAttribute('src');
+            streamVideo.load();
+        }
 
         if (interviewerVideoUrlRef.current) {
             URL.revokeObjectURL(
@@ -193,24 +205,16 @@ function Interview() {
             interviewerVideoUrlRef.current = null;
         }
 
-        videoEl.pause();
-        videoEl.removeAttribute('src');
-
-        videoEl.src = DEFAULT_INTERVIEWER_VIDEO_URL;
-        videoEl.loop = true;
-        videoEl.muted = true;
-
-        videoEl.load();
-        videoEl.currentTime = 0;
-
-        videoEl.play().catch((error) => {
-            if (error.name !== 'AbortError') {
-                console.error(
-                    '[interview] 기본 면접관 영상 재생 오류:',
-                    error,
-                );
-            }
-        });
+        if (defaultVideo) {
+            defaultVideo.play().catch((error) => {
+                if (error.name !== 'AbortError') {
+                    console.error(
+                        '[interview] 기본 면접관 영상 재생 오류:',
+                        error,
+                    );
+                }
+            });
+        }
     };
 
     /*
@@ -223,7 +227,7 @@ function Interview() {
         avatar,
         duoAvatarType,
     ) => {
-        const videoEl = interviewerVideoRef.current;
+        const videoEl = interviewerStreamVideoRef.current;
 
         if (!videoEl || !text) {
             return false;
@@ -362,15 +366,15 @@ function Interview() {
             isInterviewerStreamPlayingRef.current =
                 true;
 
-            // 이 시점까지는 기본 영상이 계속 재생되고 있었음
+            setIsInterviewerStreamVisible(false);
+
             videoEl.pause();
             videoEl.loop = false;
             videoEl.muted = false;
 
             videoEl.removeAttribute('src');
-            videoEl.load();
-
             videoEl.src = objectUrl;
+            videoEl.load();
 
             await new Promise((resolve, reject) => {
                 const handleSourceOpen = () => {
@@ -1823,37 +1827,74 @@ function Interview() {
         }
     };
 
-    // --- 웹캠 권한 요청 및 화면 출력 ---
-    useEffect(() => {
-        let videoStream = null;
-
-        const setupCamera = async () => {
-            try {
-                videoStream = await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { ideal: 640 },
-                        height: { ideal: 360 }
-                    }
-                });
-
-                if (userVideoRef.current) {
-                    userVideoRef.current.srcObject = videoStream;
-                }
-                setIsCameraActive(true);
-            } catch (error) {
-                console.error('웹캠 연결 오류:', error);
-                // addMessage('system', '사용자 카메라를 확인할 수 없습니다.');
-            }
-        };
-
-        if (navigator.mediaDevices?.getUserMedia) {
-            setupCamera();
+    const startUserCamera = async () => {
+        if (!navigator.mediaDevices?.getUserMedia) {
+            console.error('현재 브라우저에서는 카메라를 지원하지 않습니다.');
+            return;
         }
 
-        return () => {
-            if (videoStream) {
-                videoStream.getTracks().forEach((track) => track.stop());
+        try {
+            const videoStream =
+                await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 360 },
+                    },
+                    audio: false,
+                });
+
+            userCameraStreamRef.current = videoStream;
+
+            if (userVideoRef.current) {
+                userVideoRef.current.srcObject = videoStream;
+
+                await userVideoRef.current.play().catch((error) => {
+                    if (error.name !== 'AbortError') {
+                        console.error('사용자 영상 재생 오류:', error);
+                    }
+                });
             }
+
+            setIsCameraActive(true);
+        } catch (error) {
+            console.error('웹캠 연결 오류:', error);
+            setIsCameraActive(false);
+        }
+    };
+
+    const stopUserCamera = () => {
+        userCameraStreamRef.current
+            ?.getTracks()
+            .forEach((track) => track.stop());
+
+        userCameraStreamRef.current = null;
+
+        if (userVideoRef.current) {
+            userVideoRef.current.pause();
+            userVideoRef.current.srcObject = null;
+        }
+
+        setIsCameraActive(false);
+    };
+
+    const toggleUserCamera = () => {
+        if (isCameraActive) {
+            stopUserCamera();
+            return;
+        }
+
+        startUserCamera();
+    };
+
+    // 페이지 진입 시 사용자 카메라 자동 실행
+    useEffect(() => {
+
+        return () => {
+            userCameraStreamRef.current
+                ?.getTracks()
+                .forEach((track) => track.stop());
+
+            userCameraStreamRef.current = null;
         };
     }, []);
 
@@ -2560,41 +2601,54 @@ function Interview() {
             </div>
 
             <section className="interview-left">
-                <video
-                    ref={interviewerVideoRef}
-                    className="interviewer-avatar-video"
-                    src={DEFAULT_INTERVIEWER_VIDEO_URL}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="auto"
-                    onEnded={() => {
-                        if (!isInterviewerStreamPlayingRef.current) {
-                            return;
-                        }
+                <div className="interviewer-video-layer">
+                    <video
+                        ref={interviewerDefaultVideoRef}
+                        className="interviewer-avatar-video interviewer-default-video"
+                        src={DEFAULT_INTERVIEWER_VIDEO_URL}
+                        autoPlay
+                        muted
+                        loop
+                        playsInline
+                        preload="auto"
+                    />
 
-                        setIsInterviewerSpeaking(false);
-                        restoreDefaultInterviewerVideo();
-                    }}
-                    onError={(event) => {
-                        const video = event.currentTarget;
+                    <video
+                        ref={interviewerStreamVideoRef}
+                        className={`interviewer-avatar-video interviewer-stream-video ${isInterviewerStreamVisible ? 'visible' : ''
+                            }`}
+                        playsInline
+                        preload="auto"
+                        onPlaying={() => {
+                            setIsInterviewerStreamVisible(true);
+                        }}
+                        onEnded={() => {
+                            if (!isInterviewerStreamPlayingRef.current) {
+                                return;
+                            }
 
-                        console.error(
-                            '[interview] 면접관 영상 재생 오류:',
-                            {
-                                src: video.currentSrc,
-                                errorCode: video.error?.code,
-                                errorMessage: video.error?.message,
-                            },
-                        );
-
-                        if (isInterviewerStreamPlayingRef.current) {
                             setIsInterviewerSpeaking(false);
                             restoreDefaultInterviewerVideo();
-                        }
-                    }}
-                />
+                        }}
+                        onError={(event) => {
+                            const video = event.currentTarget;
+
+                            console.error(
+                                '[interview] 면접관 스트리밍 영상 재생 오류:',
+                                {
+                                    src: video.currentSrc,
+                                    errorCode: video.error?.code,
+                                    errorMessage: video.error?.message,
+                                },
+                            );
+
+                            if (isInterviewerStreamPlayingRef.current) {
+                                setIsInterviewerSpeaking(false);
+                                restoreDefaultInterviewerVideo();
+                            }
+                        }}
+                    />
+                </div>
 
                 {activeCandidateAnswer && (
                     <video
@@ -2777,7 +2831,6 @@ function Interview() {
             </section>
 
             <aside className="interview-right">
-                {/* --- 추가된 웹캠 영상 표시 영역 --- */}
                 <section className="user-camera-area">
                     <video
                         ref={userVideoRef}
@@ -2786,14 +2839,33 @@ function Interview() {
                         muted
                         className={`user-video ${isCameraActive ? 'active' : ''}`}
                     />
+
                     {!isCameraActive && (
                         <div className="camera-placeholder">
                             <span className="camera-icon">📷</span>
-                            <span>카메라 연결 중...</span>
+                            <span>카메라가 꺼져 있습니다.</span>
                         </div>
                     )}
+
+                    <button
+                        type="button"
+                        className={`camera-toggle-button ${isCameraActive ? 'camera-on' : 'camera-off'
+                            }`}
+                        onClick={toggleUserCamera}
+                        aria-label={
+                            isCameraActive
+                                ? '내 카메라 끄기'
+                                : '내 카메라 켜기'
+                        }
+                        title={
+                            isCameraActive
+                                ? '내 카메라 끄기'
+                                : '내 카메라 켜기'
+                        }
+                    >
+                        {isCameraActive ? '🚫' : '📹'}
+                    </button>
                 </section>
-                {/* ------------------------ */}
 
                 <section className="chat-area">
                     <div className="chat-header">
