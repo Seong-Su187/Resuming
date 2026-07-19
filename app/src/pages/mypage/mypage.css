@@ -23,7 +23,8 @@
 
 .mypage-main-button,
 .mypage-empty button,
-.mypage-message button {
+.mypage-message button,
+.pdf-download-button {
     flex-shrink: 0;
 
     padding: 12px 20px;
@@ -46,9 +47,16 @@
 
 .mypage-main-button:hover,
 .mypage-empty button:hover,
-.mypage-message button:hover {
+.mypage-message button:hover,
+.pdf-download-button:hover:not(:disabled) {
     background: #325b47;
     transform: translateY(-1px);
+}
+
+.pdf-download-button:disabled {
+    background: #87a395;
+    cursor: not-allowed;
+    transform: none;
 }
 
 /* 전체 레이아웃 */
@@ -158,6 +166,20 @@
 /* 오른쪽 결과 영역 */
 .mypage-result {
     min-width: 0;
+}
+
+.mypage-session-result-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.mypage-session-result-header h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 800;
+    color: #202723;
 }
 
 .mypage-summary {
@@ -294,10 +316,10 @@
     word-break: keep-all;
 }
 
-/* 음성 분석 수치 */
+/* 음성 및 비전 분석 수치 */
 .mypage .voice-metric-list {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 8px;
 
     margin: 24px 0;
@@ -319,7 +341,8 @@
 .mypage .voice-metric-list span {
     color: #737d77;
 
-    font-size: 13px;
+    font-size: 11px;
+    white-space: nowrap;
 }
 
 .mypage .voice-metric-list strong {
@@ -507,11 +530,20 @@
     color: #865da5;
 }
 
+.combined-chart-series.gaze,
+.chart-legend-item.gaze {
+    color: #d97736;
+}
+
+.combined-chart-series.emotion,
+.chart-legend-item.emotion {
+    color: #c44d56;
+}
+
 /* 그래프 아래 실제 평균값 */
 .mypage-chart-values {
     display: grid;
-    grid-template-columns: repeat(auto-fit,
-            minmax(150px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 10px;
 
     margin-top: 16px;

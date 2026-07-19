@@ -111,16 +111,16 @@ function Main({ mainVideoUrl }) {
 
     return (
         <main className="main-page">
-            {isLoggedIn && (
-                <nav className="user-floating-menu" aria-label="사용자 메뉴">
-                    <button
-                        type="button"
-                        className="user-floating-trigger"
-                        aria-label="사용자 메뉴 열기"
-                    >
-                        <UserIcon size={40} color="#ffffff" />
-                    </button>
 
+            <nav className="user-floating-menu" aria-label="사용자 메뉴">
+                <button
+                    type="button"
+                    className="user-floating-trigger"
+                    aria-label="사용자 메뉴 열기"
+                >
+                    <UserIcon size={40} color="#ffffff" />
+                </button>
+                {isLoggedIn ? (
                     <div className="user-floating-list">
                         <button
                             type="button"
@@ -146,8 +146,18 @@ function Main({ mainVideoUrl }) {
                             로그아웃
                         </button>
                     </div>
-                </nav>
-            )}
+                ) : (
+                    <div className="user-floating-list">
+                        <button
+                            type="button"
+                            className="user-floating-item login"
+                            onClick={handleLogin}
+                        >
+                            로그인
+                        </button>
+                    </div>
+                )}
+            </nav>
 
             <section className="main-card section1">
                 <video

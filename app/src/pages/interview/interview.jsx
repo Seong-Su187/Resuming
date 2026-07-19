@@ -12,6 +12,7 @@ function Interview() {
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
+    const userVideoRef = useRef(null); // 추가된 사용자 비디오 Ref
 
     const candidateDelayTimerRef = useRef(null);
 
@@ -68,6 +69,8 @@ function Interview() {
     const [isResumeUploading, setIsResumeUploading] = useState(false);
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
+    
+    const [isCameraActive, setIsCameraActive] = useState(false); // 추가된 상태
 
     // 나중에 제거
     const [answerMode, setAnswerMode] = useState('voice');
@@ -130,6 +133,24 @@ function Interview() {
                 name,
             },
         ]);
+    };
+
+    const getInterviewerName = (questionType, avatar) => {
+        if (
+            questionType === 'technical' ||
+            avatar === 'middle_aged'
+        ) {
+            return '기술면접관';
+        }
+
+        if (
+            questionType === 'hr' ||
+            avatar === 'young'
+        ) {
+            return '인사담당자';
+        }
+
+        return '면접관';
     };
 
     const shuffleCandidateAnswers = (answers) => {
@@ -416,9 +437,6 @@ function Interview() {
 
     /*
      * HTTP 주소를 WebSocket 주소로 변경
-     *
-     * http://localhost:8001
-     * → ws://localhost:8001
      */
     const getWebSocketUrl = () => {
         return API_BASE_URL
@@ -429,7 +447,6 @@ function Interview() {
     // 1. 면접 페이지 진입 시 백엔드 세션 생성
     const createInterviewSession = async () => {
         try {
-            // 로그인할 때 저장한 사용자 정보에 맞춰 사용합니다.
             const savedUser = localStorage.getItem('user');
             const parsedUser = savedUser
                 ? JSON.parse(savedUser)
@@ -456,8 +473,6 @@ function Interview() {
                     },
                     body: JSON.stringify({
                         user_id: userId,
-
-                        // 현재는 백엔드 테스트용 고정 직무
                         job_category: '프론트엔드 개발자',
                     }),
                 },
@@ -967,7 +982,6 @@ function Interview() {
     };
 
     // 4. PDF를 백엔드로 업로드
-    // 선택된 이력서 파일을 현재 면접 세션에 전송 
     const uploadResumeFile = async (file) => {
         if (!file) {
             addMessage(
@@ -1089,10 +1103,6 @@ function Interview() {
                 console.log('WebSocket 수신:', data);
 
                 if (data.type === 'connection_established') {
-                    /*
-                     * 백엔드는 start_interview를 받은 후
-                     * 첫 번째 질문을 전송합니다.
-                     */
                     websocket.send(
                         JSON.stringify({
                             type: 'start_interview',
@@ -1122,6 +1132,10 @@ function Interview() {
                     addMessage(
                         'interviewer',
                         data.question_text,
+                        getInterviewerName(
+                            data.interviewer_type,
+                            data.avatar,
+                        ),
                     );
 
                     playInterviewerVideoStream(
@@ -1220,10 +1234,6 @@ function Interview() {
             return;
         }
 
-        /*
-         * 마이크 권한 요청 전에 발언권을 먼저 확보합니다.
-         * getUserMedia를 기다리는 사이 지원자 타이머가 실행되는 것을 방지합니다.
-         */
         clearTimeout(candidateDelayTimerRef.current);
 
         isStartingAnswerRecordingRef.current = true;
@@ -1268,10 +1278,6 @@ function Interview() {
                     },
                 });
 
-            /*
-             * 권한 요청 중 지원자 발언이 시작됐다면
-             * 마이크를 사용하지 않고 종료합니다.
-             */
             if (activeCandidateAnswer) {
                 stream
                     .getTracks()
@@ -1412,9 +1418,6 @@ function Interview() {
                         );
                     };
 
-                    /*
-                     * 마지막 남은 녹음 데이터를 먼저 요청한 후 종료합니다.
-                     */
                     recorder.requestData();
                     recorder.stop();
                 },
@@ -1468,9 +1471,6 @@ function Interview() {
                 );
             }
 
-            /*
-             * 오른쪽 채팅창에 실제 STT 결과 표시
-             */
             addMessage('user', transcribedText);
 
             const websocket = websocketRef.current;
@@ -1484,10 +1484,6 @@ function Interview() {
                 );
             }
 
-            /*
-             * STT 결과와 음성 분석 결과를
-             * WebSocket 평가 로직으로 전달
-             */
             pendingUserAnswerRef.current = {
                 type: 'submit_answer',
                 transcribed_text: transcribedText,
@@ -1524,13 +1520,6 @@ function Interview() {
         }
     };
 
-    /*
-     * 현재 테스트용 텍스트 답변 제출
-     *
-     * 추후 음성인식 기능이 완성되면
-     * STT 결과를 answerText에 넣거나
-     * handleRecordAnswer를 다시 활성화
-     */
     const handleSubmitTextAnswer = () => {
         const trimmedAnswer = answerText.trim();
 
@@ -1583,6 +1572,40 @@ function Interview() {
             handleSubmitTextAnswer();
         }
     };
+
+    // --- 웹캠 권한 요청 및 화면 출력 ---
+    useEffect(() => {
+        let videoStream = null;
+
+        const setupCamera = async () => {
+            try {
+                videoStream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 360 }
+                    }
+                });
+
+                if (userVideoRef.current) {
+                    userVideoRef.current.srcObject = videoStream;
+                }
+                setIsCameraActive(true);
+            } catch (error) {
+                console.error('웹캠 연결 오류:', error);
+                // addMessage('system', '사용자 카메라를 확인할 수 없습니다.');
+            }
+        };
+
+        if (navigator.mediaDevices?.getUserMedia) {
+            setupCamera();
+        }
+
+        return () => {
+            if (videoStream) {
+                videoStream.getTracks().forEach((track) => track.stop());
+            }
+        };
+    }, []);
 
     useEffect(() => {
         const pendingAnswer =
@@ -1985,7 +2008,6 @@ function Interview() {
         );
     };
 
-    // 선택된 지원자 답변을 겹치지 않게 순차적으로 시작
     useEffect(() => {
         clearTimeout(candidateDelayTimerRef.current);
 
@@ -2000,15 +2022,10 @@ function Interview() {
             return;
         }
 
-        // 5초 이상 10초 이하
         const randomDelay =
             5000 + Math.floor(Math.random() * 5001);
 
         candidateDelayTimerRef.current = setTimeout(() => {
-            /*
-             * 타이머가 끝나는 순간 사용자가 녹음을 시작했거나
-             * 답변 분석 중일 수 있으므로 다시 확인합니다.
-             */
             if (
                 isRecordingAnswerRef.current ||
                 isStartingAnswerRecordingRef.current
@@ -2040,12 +2057,12 @@ function Interview() {
                 const showCandidateTimer = setTimeout(() => {
                     setActiveCandidateAnswer(candidateWithMedia);
                     setCandidateTransition('opening');
-                }, 180);
+                }, 240);
 
                 const finishTransitionTimer = setTimeout(() => {
                     setCandidateTransition('');
                     setIsCandidateSceneReady(true);
-                }, 400);
+                }, 500);
 
                 candidateTransitionTimerRef.current = [
                     showCandidateTimer,
@@ -2068,7 +2085,6 @@ function Interview() {
         isProcessingAnswer,
     ]);
 
-    // 지원자 답변을 한 글자씩 표시
     useEffect(() => {
         if (
             !activeCandidateAnswer ||
@@ -2122,11 +2138,11 @@ function Interview() {
                         setActiveCandidateAnswer(null);
                         setTypedCandidateText('');
                         setCandidateTransition('opening');
-                    }, 180);
+                    }, 240);
 
                     const finishReturnTimer = setTimeout(() => {
                         setCandidateTransition('');
-                    }, 400);
+                    }, 500);
 
                     candidateTransitionTimerRef.current = [
                         hideCandidateTimer,
@@ -2176,7 +2192,6 @@ function Interview() {
         };
     }, [activeCandidateAnswer, isCandidateSceneReady]);
 
-    // 페이지 최초 진입 시 면접 세션 생성
     useEffect(() => {
         if (sessionCreatedRef.current) {
             return;
@@ -2187,7 +2202,6 @@ function Interview() {
         createInterviewSession();
     }, []);
 
-    // 메시지 추가 시 채팅창 아래로 이동
     useEffect(() => {
         chatEndRef.current?.scrollIntoView({
             behavior: 'smooth',
@@ -2195,7 +2209,6 @@ function Interview() {
         });
     }, [messages, isRecordingAnswer]);
 
-    // 컴포넌트 종료 시 타이머 및 WebSocket 정리     
     useEffect(() => {
         return () => {
             clearTimeout(candidateDelayTimerRef.current);
@@ -2478,6 +2491,24 @@ function Interview() {
             </section>
 
             <aside className="interview-right">
+                {/* --- 추가된 웹캠 영상 표시 영역 --- */}
+                <section className="user-camera-area">
+                    <video
+                        ref={userVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className={`user-video ${isCameraActive ? 'active' : ''}`}
+                    />
+                    {!isCameraActive && (
+                        <div className="camera-placeholder">
+                            <span className="camera-icon">📷</span>
+                            <span>카메라 연결 중...</span>
+                        </div>
+                    )}
+                </section>
+                {/* ------------------------ */}
+
                 <section className="chat-area">
                     <div className="chat-header">
                         <div>
@@ -2499,12 +2530,11 @@ function Interview() {
                                 key={message.id}
                                 className={`chat-message ${message.type}`}
                             >
-                                {message.type ===
-                                    'interviewer' && (
-                                        <span className="message-name">
-                                            면접관
-                                        </span>
-                                    )}
+                                {message.type === 'interviewer' && (
+                                    <span className="message-name">
+                                        {message.name || '면접관'}
+                                    </span>
+                                )}
 
                                 {message.type === 'user' && (
                                     <span className="message-name">

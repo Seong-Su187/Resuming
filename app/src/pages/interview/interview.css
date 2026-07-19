@@ -24,22 +24,17 @@
     position: absolute;
     inset: 0;
     z-index: 50;
-
     pointer-events: none;
 }
 
 .candidate-eye-transition::before,
 .candidate-eye-transition::after {
     content: '';
-
     position: absolute;
     left: 0;
-
     width: 100%;
     height: 50%;
-
     background: #000;
-
     transform: scaleY(0);
 }
 
@@ -55,19 +50,18 @@
 
 .candidate-eye-transition.candidate-eye-closing::before,
 .candidate-eye-transition.candidate-eye-closing::after {
-    animation: candidate-eyelid-close 0.18s ease-in forwards;
+    animation: candidate-eyelid-close 0.22s ease-in forwards;
 }
 
 .candidate-eye-transition.candidate-eye-opening::before,
 .candidate-eye-transition.candidate-eye-opening::after {
-    animation: candidate-eyelid-open 0.22s ease-out forwards;
+    animation: candidate-eyelid-open 0.24s ease-out forwards;
 }
 
 @keyframes candidate-eyelid-close {
     from {
         transform: scaleY(0);
     }
-
     to {
         transform: scaleY(1);
     }
@@ -77,7 +71,6 @@
     from {
         transform: scaleY(1);
     }
-
     to {
         transform: scaleY(0);
     }
@@ -87,7 +80,6 @@
     position: absolute;
     inset: 0;
     z-index: 1;
-
     width: 100%;
     height: 100%;
     object-fit: contain;
@@ -99,13 +91,10 @@
     position: absolute;
     inset: 0;
     z-index: 2;
-
     width: 100%;
     height: 100%;
-
     object-fit: cover;
     object-position: center;
-
     background: #000;
 }
 
@@ -124,15 +113,12 @@
     top: 24px;
     left: 24px;
     z-index: 5;
-
     display: flex;
     align-items: center;
     gap: 9px;
-
     padding: 10px 16px;
     border: 1px solid rgba(255, 255, 255, 0.25);
     border-radius: 999px;
-
     color: #ffffff;
     font-size: 14px;
     background: rgba(10, 13, 21, 0.55);
@@ -152,12 +138,10 @@
     left: 50%;
     bottom: 40px;
     z-index: 5;
-
     width: min(620px, calc(100% - 48px));
     display: flex;
     flex-direction: column;
     gap: 14px;
-
     transform: translateX(-50%);
 }
 
@@ -165,7 +149,6 @@
     padding: 12px 16px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 12px;
-
     color: #ffffff;
     font-size: 14px;
     text-align: center;
@@ -175,11 +158,9 @@
 
 .answer-box {
     position: relative;
-
     padding: 16px;
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 18px;
-
     background: rgba(10, 13, 21, 0.76);
     backdrop-filter: blur(14px);
 }
@@ -188,11 +169,9 @@
     width: 100%;
     min-height: 92px;
     padding: 0 0 20px;
-
     border: 0;
     outline: 0;
     resize: none;
-
     color: #ffffff;
     font-family: inherit;
     font-size: 15px;
@@ -208,7 +187,6 @@
     position: absolute;
     right: 16px;
     bottom: 12px;
-
     color: rgba(255, 255, 255, 0.55);
     font-size: 12px;
 }
@@ -216,14 +194,11 @@
 .interview-action-button {
     width: 100%;
     min-height: 58px;
-
     border: 0;
     border-radius: 16px;
-
     color: #ffffff;
     font-size: 17px;
     font-weight: 700;
-
     cursor: pointer;
     transition:
         transform 0.15s ease,
@@ -258,14 +233,11 @@
     display: flex;
     align-items: center;
     gap: 14px;
-
     width: 100%;
     padding: 16px 18px;
     box-sizing: border-box;
-
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
-
     color: #ffffff;
     background: rgba(10, 13, 21, 0.72);
     backdrop-filter: blur(12px);
@@ -275,13 +247,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-
     width: 46px;
     height: 46px;
     flex-shrink: 0;
-
     border-radius: 12px;
-
     font-size: 23px;
     background: rgba(255, 255, 255, 0.1);
 }
@@ -293,13 +262,11 @@
 .existing-resume-card strong {
     display: block;
     margin-bottom: 5px;
-
     font-size: 15px;
 }
 
 .existing-resume-card p {
     margin: 0;
-
     color: rgba(255, 255, 255, 0.65);
     font-size: 13px;
     line-height: 1.5;
@@ -347,15 +314,12 @@
 .answer-mode-button {
     flex: 1;
     height: 42px;
-
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 12px;
-
     color: rgba(255, 255, 255, 0.65);
     font-family: inherit;
     font-size: 14px;
     font-weight: 600;
-
     background: rgba(10, 13, 21, 0.68);
     cursor: pointer;
 }
@@ -392,17 +356,14 @@
     min-height: 76px;
     padding: 14px 16px;
     box-sizing: border-box;
-
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
     outline: none;
     resize: none;
-
     color: #ffffff;
     font-family: inherit;
     font-size: 15px;
     line-height: 1.5;
-
     background: rgba(10, 13, 21, 0.76);
     backdrop-filter: blur(14px);
 }
@@ -418,15 +379,12 @@
 .answer-submit-button {
     flex: 0 0 120px;
     min-height: 76px;
-
     border: 0;
     border-radius: 16px;
-
     color: #ffffff;
     font-family: inherit;
     font-size: 16px;
     font-weight: 700;
-
     background: linear-gradient(135deg, #7457f5, #5838cf);
     cursor: pointer;
 }
@@ -456,30 +414,65 @@
     width: 420px;
     height: 100vh;
     box-sizing: border-box;
-
     display: flex;
     flex-direction: column;
-
     border-left: 1px solid #262b36;
     background: #161a23;
 }
 
+/* --- 추가된 사용자 웹캠 영역 --- */
+.user-camera-area {
+    flex: 0 0 240px; 
+    width: 100%;
+    background: #0a0d15;
+    border-bottom: 1px solid #292e39;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.user-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transform: scaleX(-1); /* 좌우 반전(거울 모드) */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.user-video.active {
+    opacity: 1;
+}
+
+.camera-placeholder {
+    position: absolute;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: #8e96a8;
+    font-size: 14px;
+}
+
+.camera-icon {
+    font-size: 24px;
+}
+/* ------------------------ */
 
 .chat-area {
     flex: 1;
     min-height: 0;
-
     display: flex;
     flex-direction: column;
 }
 
 .chat-header {
     flex: 0 0 auto;
-
     display: flex;
     align-items: center;
     padding: 15px 20px;
-
     border-bottom: 1px solid #292e39;
 }
 
@@ -503,13 +496,10 @@
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-
     display: flex;
     flex-direction: column;
     gap: 16px;
-
     padding: 20px;
-
     scrollbar-width: thin;
     scrollbar-color: #3b414e #161a23;
 }
@@ -552,12 +542,10 @@
     max-width: 86%;
     padding: 12px 14px;
     border-radius: 15px;
-
     color: #e9ecf3;
     font-size: 14px;
     line-height: 1.5;
     word-break: break-word;
-
     background: #252a35;
 }
 
@@ -579,7 +567,6 @@
     max-width: 100%;
     padding: 8px 12px;
     border-radius: 999px;
-
     color: #8f97a8;
     font-size: 12px;
     text-align: center;
@@ -588,11 +575,9 @@
 
 .chat-input-area {
     flex: 0 0 auto;
-
     display: flex;
     gap: 10px;
     padding: 16px;
-
     border-top: 1px solid #292e39;
     background: #161a23;
 }
@@ -602,11 +587,9 @@
     min-width: 0;
     height: 46px;
     padding: 0 14px;
-
     border: 1px solid #343a47;
     border-radius: 12px;
     outline: none;
-
     color: #ffffff;
     font-family: inherit;
     background: #202530;
@@ -624,14 +607,11 @@
 .chat-input-area button {
     flex: 0 0 62px;
     height: 46px;
-
     border: 0;
     border-radius: 12px;
-
     color: #ffffff;
     font-weight: 700;
     background: #654bd8;
-
     cursor: pointer;
 }
 
@@ -648,10 +628,8 @@
     display: flex;
     align-items: center;
     gap: 16px;
-
     padding: 18px 20px;
     margin-bottom: 14px;
-
     color: #ffffff;
     background: rgba(12, 16, 26, 0.72);
     border: 1px solid rgba(255, 255, 255, 0.16);
@@ -675,11 +653,9 @@
     display: flex;
     align-items: center;
     justify-content: center;
-
     width: 48px;
     height: 48px;
     flex-shrink: 0;
-
     font-size: 23px;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 50%;
@@ -723,10 +699,8 @@
 .voice-input-guide {
     flex: 1;
     padding: 12px 14px;
-
     color: rgba(255, 255, 255, 0.55);
     font-size: 13px;
-
     background: rgba(255, 255, 255, 0.06);
     border-radius: 10px;
 }
@@ -736,12 +710,10 @@
         transform: scale(1);
         opacity: 1;
     }
-
     50% {
         transform: scale(1.08);
         opacity: 0.55;
     }
-
     100% {
         transform: scale(1);
         opacity: 1;
@@ -752,9 +724,7 @@
     max-height: 330px;
     padding: 20px;
     margin-bottom: 16px;
-
     overflow-y: auto;
-
     background: rgba(255, 255, 255, 0.92);
     border: 1px solid rgba(0, 0, 0, 0.08);
     border-radius: 16px;
@@ -764,7 +734,6 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-
     margin-bottom: 10px;
 }
 
@@ -779,7 +748,6 @@
 
 .baseline-guide-description {
     margin-bottom: 14px;
-
     font-size: 14px;
     color: #666;
 }
@@ -787,7 +755,6 @@
 .baseline-guide-text {
     line-height: 1.8;
     white-space: pre-line;
-
     font-size: 15px;
     color: #222;
 }
@@ -795,7 +762,6 @@
 .record-button.recording {
     background: #d94848;
 }
-
 
 .baseline-choice-area {
     display: flex;
@@ -808,14 +774,11 @@
     display: flex;
     align-items: center;
     gap: 14px;
-
     width: 100%;
     padding: 16px 18px;
     box-sizing: border-box;
-
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
-
     color: #ffffff;
     background: rgba(10, 13, 21, 0.72);
     backdrop-filter: blur(12px);
@@ -825,13 +788,10 @@
     display: flex;
     align-items: center;
     justify-content: center;
-
     width: 46px;
     height: 46px;
     flex-shrink: 0;
-
     border-radius: 12px;
-
     font-size: 23px;
     background: rgba(255, 255, 255, 0.1);
 }
@@ -843,13 +803,11 @@
 .existing-baseline-card strong {
     display: block;
     margin-bottom: 5px;
-
     font-size: 15px;
 }
 
 .existing-baseline-card p {
     margin: 0;
-
     color: rgba(255, 255, 255, 0.65);
     font-size: 13px;
     line-height: 1.5;
@@ -859,16 +817,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: 7px;
-
     margin-top: 10px;
 }
 
 .baseline-metric-summary span {
     padding: 5px 8px;
-
     border: 1px solid rgba(255, 255, 255, 0.13);
     border-radius: 8px;
-
     color: rgba(255, 255, 255, 0.75);
     font-size: 11px;
     background: rgba(255, 255, 255, 0.07);
@@ -911,14 +866,11 @@
     display: flex;
     flex-direction: column;
     gap: 14px;
-
     width: 100%;
     padding: 18px;
     box-sizing: border-box;
-
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 16px;
-
     color: #ffffff;
     background: rgba(10, 13, 21, 0.78);
     backdrop-filter: blur(12px);
@@ -935,7 +887,6 @@
 
 .baseline-privacy-notice {
     margin: 0;
-
     color: rgba(255, 255, 255, 0.6);
     font-size: 12px;
     line-height: 1.6;
@@ -954,7 +905,6 @@
 
 .baseline-retry-button {
     border: 1px solid rgba(255, 255, 255, 0.25);
-
     color: #ffffff;
     background: rgba(10, 13, 21, 0.72);
     backdrop-filter: blur(10px);
@@ -970,7 +920,6 @@
 
 .baseline-replay-button {
     border: 1px solid rgba(255, 255, 255, 0.25);
-
     color: #ffffff;
     background: rgba(85, 118, 255, 0.45);
     backdrop-filter: blur(10px);
@@ -980,35 +929,20 @@
     background: rgba(85, 118, 255, 0.65);
 }
 
-
-
-
-
-
-
-
-
-
-
-
 /* 개발 중 사용하는 임시 답변 모드 전환 버튼 */
 .temporary-mode-toggle {
     position: fixed;
     top: 18px;
     right: 438px;
     z-index: 100;
-
     display: flex;
     align-items: center;
     gap: 6px;
-
     padding: 7px 8px;
     border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 12px;
-
     color: rgba(255, 255, 255, 0.7);
     font-size: 12px;
-
     background: rgba(10, 13, 21, 0.82);
     backdrop-filter: blur(10px);
 }
@@ -1019,15 +953,12 @@
 
 .temporary-mode-toggle button {
     padding: 7px 11px;
-
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 8px;
-
     color: rgba(255, 255, 255, 0.7);
     font-family: inherit;
     font-size: 12px;
     font-weight: 600;
-
     background: rgba(255, 255, 255, 0.06);
     cursor: pointer;
 }
@@ -1053,9 +984,7 @@
     top: 50%;
     left: 50%;
     z-index: 4;
-
     width: min(560px, calc(100% - 64px));
-
     transform: translate(-50%, -50%);
     pointer-events: none;
 }
@@ -1063,7 +992,6 @@
 .candidate-speaking-overlay>strong {
     display: block;
     margin: 0 0 9px 14px;
-
     color: #ffffff;
     font-size: 15px;
     text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
@@ -1072,15 +1000,12 @@
 .candidate-speaking-bubble {
     min-height: 54px;
     padding: 18px 21px;
-
     border: 1px solid rgba(255, 255, 255, 0.24);
     border-radius: 20px 20px 20px 6px;
-
     color: #ffffff;
     font-size: 17px;
     line-height: 1.7;
     word-break: keep-all;
-
     background: rgba(18, 24, 31, 0.88);
     box-shadow: 0 18px 46px rgba(0, 0, 0, 0.32);
     backdrop-filter: blur(14px);
@@ -1089,17 +1014,14 @@
 .typing-cursor {
     display: inline-block;
     margin-left: 2px;
-
     animation: typingCursorBlink 0.7s steps(1) infinite;
 }
 
 @keyframes typingCursorBlink {
-
     0%,
     45% {
         opacity: 1;
     }
-
     46%,
     100% {
         opacity: 0;
@@ -1119,9 +1041,4 @@
 .answer-textarea:disabled {
     cursor: not-allowed;
     opacity: 0.55;
-}
-
-/* 사용자 카메라 영역 제거 후 채팅창이 우측 전체 높이를 사용 */
-.interview-right .chat-area {
-    height: 100%;
 }

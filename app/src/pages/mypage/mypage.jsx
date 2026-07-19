@@ -34,6 +34,20 @@ const CHART_SERIES = [
         fixed: 0,
         className: 'wpm',
     },
+    {
+        key: 'averageGaze',
+        label: '시선 유지',
+        unit: '%',
+        fixed: 1,
+        className: 'gaze',
+    },
+    {
+        key: 'averageEmotion',
+        label: '긍정 표정',
+        unit: '%',
+        fixed: 1,
+        className: 'emotion',
+    },
 ];
 
 function InterviewAverageChart({ data }) {
@@ -283,6 +297,20 @@ function InterviewAverageChart({ data }) {
                                 ? `${item.averageWpm.toFixed(0)}wpm`
                                 : '-'}
                         </span>
+                        
+                        <span>
+                            시선 유지{' '}
+                            {Number.isFinite(item.averageGaze)
+                                ? `${item.averageGaze.toFixed(1)}%`
+                                : '-'}
+                        </span>
+
+                        <span>
+                            긍정 표정{' '}
+                            {Number.isFinite(item.averageEmotion)
+                                ? `${item.averageEmotion.toFixed(1)}%`
+                                : '-'}
+                        </span>
                     </div>
                 ))}
             </div>
@@ -297,6 +325,7 @@ function MyPage() {
     const [selectedSessionId, setSelectedSessionId] = useState('');
     const [isLoading, setIsLoading] = useState(true);
     const [errorMessage, setErrorMessage] = useState('');
+    const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
 
     useEffect(() => {
         const fetchQaLogs = async () => {
@@ -435,8 +464,56 @@ function MyPage() {
                     session.qaLogs,
                     'speed_difference_wpm',
                 ),
+
+                averageGaze: calculateAverage(
+                    session.qaLogs,
+                    'gaze_percentage',
+                ),
+
+                averageEmotion: calculateAverage(
+                    session.qaLogs,
+                    'emotion_percentage',
+                ),
             }));
     }, [sessions]);
+
+    // PDF 다운로드 핸들러
+    const handleDownloadPdf = async () => {
+        if (!selectedSessionId || isDownloadingPdf) return;
+
+        setIsDownloadingPdf(true);
+
+        try {
+            // 주의: 이 엔드포인트는 백엔드의 PDF 생성 API 라우팅에 맞게 설정해야 합니다. (예: /interviews/{sessionId}/pdf)
+            const response = await fetch(`${API_BASE_URL}/interviews/${selectedSessionId}/pdf`, {
+                method: 'GET',
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => null);
+                throw new Error(errorData?.detail || 'PDF 리포트를 생성하는 중 오류가 발생했습니다.');
+            }
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `interview_report_${selectedSessionId}.pdf`;
+            
+            document.body.appendChild(link);
+            link.click();
+            
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(url);
+            
+        } catch (error) {
+            console.error('PDF 다운로드 오류:', error);
+            alert(error.message);
+        } finally {
+            setIsDownloadingPdf(false);
+        }
+    };
 
     if (isLoading) {
         return (
@@ -486,7 +563,7 @@ function MyPage() {
                     <h2>아직 저장된 면접 기록이 없습니다.</h2>
 
                     <p>
-                        면접을 완료하면 질문, 답변, 음성 분석 결과가
+                        면접을 완료하면 질문, 답변, 음성 및 비전 분석 결과가
                         이곳에 표시됩니다.
                     </p>
 
@@ -564,6 +641,18 @@ function MyPage() {
 
                         {selectedSession && (
                             <>
+                                <div className="mypage-session-result-header">
+                                    <h2>상세 결과</h2>
+                                    <button
+                                        type="button"
+                                        className="pdf-download-button"
+                                        onClick={handleDownloadPdf}
+                                        disabled={isDownloadingPdf}
+                                    >
+                                        {isDownloadingPdf ? '다운로드 중...' : 'PDF 다운로드'}
+                                    </button>
+                                </div>
+                            
                                 <div className="mypage-summary">
                                     <div>
                                         <span>지원 직무</span>
@@ -624,9 +713,7 @@ function MyPage() {
 
                                                 <div className="voice-metric-list">
                                                     <div>
-                                                        <span>
-                                                            목소리
-                                                        </span>
+                                                        <span>목소리 떨림</span>
 
                                                         <strong>
                                                             {formatMetric(
@@ -636,9 +723,7 @@ function MyPage() {
                                                     </div>
 
                                                     <div>
-                                                        <span>
-                                                            음량
-                                                        </span>
+                                                        <span>음량 흔들림</span>
 
                                                         <strong>
                                                             {formatMetric(
@@ -648,13 +733,31 @@ function MyPage() {
                                                     </div>
 
                                                     <div>
-                                                        <span>
-                                                            속도
-                                                        </span>
+                                                        <span>속도 변화</span>
 
                                                         <strong>
                                                             {formatMetric(
                                                                 log.speed_difference_wpm, 0, 'wpm',
+                                                            )}
+                                                        </strong>
+                                                    </div>
+
+                                                    <div>
+                                                        <span>시선 유지율</span>
+
+                                                        <strong>
+                                                            {formatMetric(
+                                                                log.gaze_percentage, 1, '%',
+                                                            )}
+                                                        </strong>
+                                                    </div>
+
+                                                    <div>
+                                                        <span>긍정 표정</span>
+
+                                                        <strong>
+                                                            {formatMetric(
+                                                                log.emotion_percentage, 1, '%',
                                                             )}
                                                         </strong>
                                                     </div>
