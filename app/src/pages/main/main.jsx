@@ -5,6 +5,24 @@ import '../../index.css';
 import './main.css';
 
 function Main({ mainVideoUrl }) {
+    const infoSlides = [
+        {
+            label: 'FLOW',
+            title: '면접 진행 흐름',
+            lines: ['음성 / 이력서 등록', '질문 생성', '면접 연습'],
+        },
+        {
+            label: 'HOW TO USE',
+            title: '사용 방법',
+            lines: ['질문을 듣고', '실제처럼 답변하고', '결과를 확인하세요'],
+        },
+        {
+            label: 'BENEFIT',
+            title: '기대 효과',
+            lines: ['실전 감각 향상', '답변 연습 강화', '발화 자신감 향상'],
+        },
+    ];
+
     const navigate = useNavigate();
     const videoRef = useRef(null);
     const messageTimerRef = useRef([]);
@@ -12,6 +30,10 @@ function Main({ mainVideoUrl }) {
     const [isFirstVisit] = useState(() => {
         return sessionStorage.getItem('mainVideoPlayed') !== 'true';
     });
+    const [infoIndex, setInfoIndex] = useState(0);
+    const [nextInfoIndex, setNextInfoIndex] = useState(null);
+    const [isInfoSliding, setIsInfoSliding] = useState(false);
+    const [isVideoEnded, setIsVideoEnded] = useState(false);
 
     useEffect(() => {
         if (isFirstVisit) {
@@ -48,6 +70,53 @@ function Main({ mainVideoUrl }) {
         });
     }, [mainVideoUrl, isFirstVisit]);
 
+    useEffect(() => {
+        return () => {
+            messageTimerRef.current.forEach((timer) => {
+                clearTimeout(timer);
+            });
+        };
+    }, []);
+
+    useEffect(() => {
+        if (messageStep < 4) {
+            setInfoIndex(0);
+            setNextInfoIndex(null);
+            setIsInfoSliding(false);
+            return;
+        }
+
+        const interval = setInterval(() => {
+            if (isInfoSliding) {
+                return;
+            }
+
+            const nextIndex = (infoIndex + 1) % infoSlides.length;
+
+            setNextInfoIndex(nextIndex);
+            setIsInfoSliding(true);
+
+            setTimeout(() => {
+                setInfoIndex(nextIndex);
+                setNextInfoIndex(null);
+                setIsInfoSliding(false);
+            }, 550);
+        }, 3500);
+
+        return () => clearInterval(interval);
+    }, [
+        messageStep,
+        infoIndex,
+        infoSlides.length,
+        isInfoSliding,
+    ]);
+
+    const handleVideoEnded = () => {
+        setTimeout(() => {
+            setIsVideoEnded(true);
+        }, 600);
+    };
+
     const handleVideoLoadedMetadata = () => {
         const video = videoRef.current;
 
@@ -78,16 +147,9 @@ function Main({ mainVideoUrl }) {
             setTimeout(() => setMessageStep(2), 1500),
             setTimeout(() => setMessageStep(3), 7500),
             setTimeout(() => setMessageStep(4), 9000),
+            setTimeout(() => setMessageStep(5), 11000),
         ];
     };
-
-    useEffect(() => {
-        return () => {
-            messageTimerRef.current.forEach((timer) => {
-                clearTimeout(timer);
-            });
-        };
-    }, []);
 
     const [isLoggedIn, setIsLoggedIn] = useState(() => {
         return Boolean(localStorage.getItem('userId'));
@@ -170,15 +232,126 @@ function Main({ mainVideoUrl }) {
                     playsInline
                     onPlay={handleVideoPlay}
                     onLoadedMetadata={handleVideoLoadedMetadata}
+                    onEnded={handleVideoEnded}
                 />
 
+                <header className="main-header">
+                    <div className="main-header-brand">
+                        <img
+                            src="/assets/resuming-r.png"
+                            alt=""
+                            className="main-header-logo"
+                        />
+                        <span>ESUMING</span>
+                    </div>
+
+                    <div className="main-header-description">
+                        <span className="main-header-line" />
+                        <span>AI INTERVIEW SIMULATION · SPEAKING PRACTICE</span>
+                    </div>
+
+                    <div className="main-header-status">
+                        <span className="main-header-status-dot" />
+                        <span>READY</span>
+                    </div>
+                </header>
+
                 <div className="main-overlay">
+                    <div className="main-left-visual" aria-hidden="true">
+                        <div className="main-orbit main-orbit-large">
+                            <span className="main-orbit-dot" />
+                        </div>
+
+                        <div className="main-orbit main-orbit-medium">
+                            <span className="main-orbit-dot" />
+                        </div>
+
+                        <div className="main-orbit main-orbit-small">
+                            <span className="main-orbit-dot" />
+                        </div>
+
+                        <div className="main-visual-core">
+                            <span />
+                            <span />
+                            <span />
+                        </div>
+                    </div>
+
+                    <div
+                        className={`main-info-rotator ${messageStep >= 4 ? 'visible' : ''
+                            }`}
+                        aria-hidden="true"
+                    >
+                        <div className="main-info-viewport">
+                            <div
+                                key={`info-slide-${infoIndex}`}
+                                className={`main-info-card ${isInfoSliding ? 'slide-out' : 'active'}`}
+                            >
+                                <span className="main-info-label">
+                                    {infoSlides[infoIndex].label}
+                                </span>
+
+                                <h3 className="main-info-title">
+                                    {infoSlides[infoIndex].title}
+                                </h3>
+
+                                <ul className="main-info-list">
+                                    {infoSlides[infoIndex].lines.map((line) => (
+                                        <li key={line}>{line}</li>
+                                    ))}
+                                </ul>
+                            </div>
+
+                            {isInfoSliding && nextInfoIndex !== null && (
+                                <div className="main-info-card slide-in">
+                                    <span className="main-info-label">
+                                        {infoSlides[nextInfoIndex].label}
+                                    </span>
+
+                                    <h3 className="main-info-title">
+                                        {infoSlides[nextInfoIndex].title}
+                                    </h3>
+
+                                    <ul className="main-info-list">
+                                        {infoSlides[nextInfoIndex].lines.map((line) => (
+                                            <li key={line}>{line}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
                     <div className="main-message">
-                        <p className={`main-message-item ${messageStep >= 1 ? 'visible' : ''}`} >
+                        <p className={`main-message-item main-message-title ${messageStep >= 5 ? 'visible' : ''}`} >
+                            완벽하지 않아도 괜찮은<br />
+                            나만의 면접 무대
+                        </p>
+
+                        <p className={`main-message-item main-message-description ${messageStep >= 5 ? 'visible' : ''}`} >
+                            부담 없이 면접을 반복하며<br />
+                            조금씩 달라지는 나를 확인해 보세요.
+                        </p>
+                    </div>
+
+                    <div className="main-message">
+                        <p className={
+                            `
+                                main-message-item main-subtitle
+                                ${messageStep >= 1 ? 'visible' : ''}
+                                ${isVideoEnded ? 'ended' : ''}
+                                `
+                        } >
                             면접이 두려우신가요?
                         </p>
 
-                        <p className={`main-message-item ${messageStep >= 2 ? 'visible' : ''}`} >
+                        <p className={
+                            `
+                                main-message-item main-subtitle
+                                ${messageStep >= 2 ? 'visible' : ''}
+                                ${isVideoEnded ? 'ended' : ''}
+                                `
+                        } >
                             <img
                                 src="/assets/resuming-r.png"
                                 alt="R"
@@ -189,7 +362,13 @@ function Main({ mainVideoUrl }) {
                             차분하게 말하는 연습을 시작해 보세요.
                         </p>
 
-                        <p className={`main-message-item ${messageStep >= 3 ? 'visible' : ''}`} >
+                        <p className={
+                            `
+                                main-message-item main-subtitle
+                                ${messageStep >= 3 ? 'visible' : ''}
+                                ${isVideoEnded ? 'ended' : ''}
+                                `
+                        } >
                             <span>자신 있는 면접을 위한 첫걸음, </span>
 
                             <img
@@ -209,15 +388,10 @@ function Main({ mainVideoUrl }) {
                                         className="main-button primary"
                                         onClick={handleStartInterview}
                                     >
-                                        시작하기
-                                    </button>
-
-                                    <button
-                                        type="button"
-                                        className="main-button"
-                                        onClick={handleLogout}
-                                    >
-                                        로그아웃
+                                        <span>면접장 입장</span>
+                                        <span className="main-button-arrow" aria-hidden="true">
+                                            ❯❯
+                                        </span>
                                     </button>
                                 </span>
                             ) : (
