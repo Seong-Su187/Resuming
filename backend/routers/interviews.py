@@ -3,11 +3,13 @@ import base64
 import io
 import json
 import os
+import time
 import uuid
+import httpx
 import subprocess
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Body
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from PyPDF2 import PdfReader
@@ -16,11 +18,8 @@ import pdfkit # 🚀 WeasyPrint를 대체하는 가장 안정적인 모듈
 from schemas import SessionCreateRequest
 from database import get_db
 from audio_analyzer import extract_voice_metrics, calculate_delta
-from musetalk_client import synthesize_avatar_video
-
 from filler_analyzer import count_filler_words
 from vision_analyzer import check_gaze_loss
-
 from llm import (
     generate_resume_based_questions,
     evaluate_answer_with_llm,
@@ -126,6 +125,26 @@ async def build_candidate_answers(
         *(generate_one(candidate) for candidate in selected_candidates)
     )
 
+
+async def _generate_tts_fallback_base64(text: str, voice: str) -> str | None:
+    """
+    아바타 영상 스트리밍이 실패했을 때 프론트가 대신 재생할 음성만 미리 만들어둡니다.
+    """
+    tts_path = f"temp_fallback_tts_{uuid.uuid4()}.mp3"
+    try:
+        await asyncio.to_thread(generate_text_to_speech, text, tts_path, voice)
+        if not os.path.exists(tts_path):
+            return None
+        with open(tts_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    except Exception as error:
+        print(f"[interviews] fallback 음성 생성 오류: {error}")
+        return None
+    finally:
+        if os.path.exists(tts_path):
+            os.remove(tts_path)
+
+
 async def send_next_question(
     websocket: WebSocket,
     question_data: dict | str,
@@ -149,6 +168,12 @@ async def send_next_question(
             selected_candidates,
         )
     )
+    tts_fallback_task = asyncio.create_task(
+        _generate_tts_fallback_base64(question_text, voice)
+    )
+
+    # 듀오 서버 테스트용 임시 매핑: 백엔드의 "hr" 타입 = 듀오 노트북의 "personality" 아바타
+    duo_avatar_type = "personality" if q_type == "hr" else q_type
 
     payload = {
         "type": "next_question",
@@ -157,38 +182,69 @@ async def send_next_question(
         "question_text": question_text,
         "interviewer_type": q_type,
         "avatar": avatar,
-        "avatar_video_base64": None,
-        "tts_audio_base64": None, # 영상 생성 실패 대비 음성 데이터 추가
+        "duo_avatar_type": duo_avatar_type,
+        "tts_audio_base64": None,  # 아바타 영상 스트리밍 실패 대비 음성만이라도 재생하기 위한 fallback
         "candidate_answers": [],
     }
 
-    tts_path = f"temp_question_tts_{uuid.uuid4()}.mp3"
+    # 아바타 영상은 더 이상 여기서 만들어 기다렸다가 통째로 보내지 않습니다.
+    # 프론트가 질문 텍스트를 받는 즉시 /interviews/avatar-video-stream을 직접 호출해서
+    # MuseTalk 스트리밍 응답을 받아 재생합니다 (완성될 때까지 기다리지 않아도 됨).
+    # tts_audio_base64는 그 스트리밍이 실패했을 때만 프론트가 대신 재생할 fallback이라,
+    # candidate_answers와 마찬가지로 텍스트 전송과 병렬로 준비해서 지연을 최소화합니다.
+    payload["tts_audio_base64"] = await tts_fallback_task
+    payload["candidate_answers"] = await candidate_answers_task
+
+    await websocket.send_json(payload)
+
+
+@router.post("/avatar-video-stream")
+async def avatar_video_stream(payload: dict = Body(...)):
+    """
+    질문 텍스트를 TTS로 변환해서 Colab 듀오 서버의 실시간 스트리밍 엔드포인트로 보내고,
+    그 응답(fMP4 청크 스트림)을 그대로 프론트로 중계합니다.
+    프론트는 전체 영상이 완성되길 기다리지 않고 MediaSource로 도착하는 대로 재생합니다.
+    """
+    question_text = payload.get("text", "")
+    avatar = payload.get("avatar", "middle_aged")
+    duo_avatar_type = payload.get("duo_avatar_type", "technical")
+
+    if not question_text:
+        raise HTTPException(status_code=400, detail="text가 필요합니다.")
+
+    duo_stream_url = os.getenv("MUSETALK_DUO_STREAM_URL")
+    if not duo_stream_url:
+        raise HTTPException(status_code=503, detail="MUSETALK_DUO_STREAM_URL이 설정되지 않았습니다 (.env 확인).")
+
+    t0 = time.time()
+    voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
+    tts_path = f"temp_stream_tts_{uuid.uuid4()}.mp3"
+    generate_text_to_speech(question_text, tts_path, voice=voice)
+    print(f"[stream-timing] TTS 완료: {time.time() - t0:.2f}초", flush=True)
 
     try:
-        # 분리된 아바타의 목소리(voice)로 TTS 생성
-        generate_text_to_speech(question_text, tts_path, voice=voice)
-
-        if os.path.exists(tts_path):
-            # 오디오 Base64 인코딩
-            with open(tts_path, "rb") as audio_file:
-                payload["tts_audio_base64"] = base64.b64encode(audio_file.read()).decode("utf-8")
-
-            # 영상 Base64 인코딩
-            video_bytes = await synthesize_avatar_video(tts_path)
-            if video_bytes:
-                payload["avatar_video_base64"] = base64.b64encode(video_bytes).decode("utf-8")
-    except Exception as error:
-        print(
-            "[interviews] 아바타 영상/음성 생성 중 오류 "
-            f"(텍스트만으로 계속 진행): {error}"
-        )
+        with open(tts_path, "rb") as f:
+            audio_base64 = base64.b64encode(f.read()).decode("utf-8")
     finally:
         if os.path.exists(tts_path):
             os.remove(tts_path)
 
-    payload["candidate_answers"] = await candidate_answers_task
+    async def proxy_stream():
+        first_chunk_logged = False
+        async with httpx.AsyncClient(timeout=None) as client:
+            print(f"[stream-timing] 코랩에 요청 전송: {time.time() - t0:.2f}초", flush=True)
+            async with client.stream(
+                "POST",
+                duo_stream_url,
+                json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
+            ) as response:
+                async for chunk in response.aiter_bytes():
+                    if not first_chunk_logged:
+                        print(f"[stream-timing] 코랩에서 첫 청크 수신: {time.time() - t0:.2f}초", flush=True)
+                        first_chunk_logged = True
+                    yield chunk
 
-    await websocket.send_json(payload)
+    return StreamingResponse(proxy_stream(), media_type="video/mp4")
 
 
 @router.post("/session")
