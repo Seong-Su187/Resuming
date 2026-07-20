@@ -5,6 +5,8 @@ import API_BASE_URL from '../../config/apiConfig';
 import '../../index.css';
 import './interview.css';
 
+// 🚀 Vite 모듈 충돌을 피하기 위해 상단의 MediaPipe import 문을 모두 제거했습니다.
+
 function Interview() {
     const navigate = useNavigate();
 
@@ -15,8 +17,18 @@ function Interview() {
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
-    const userVideoRef = useRef(null); // 추가된 사용자 비디오 Ref
-    const userCameraStreamRef = useRef(null);
+    
+    // 웹캠 및 비전 AI 처리 Refs
+    const userVideoRef = useRef(null); 
+    const canvasRef = useRef(null);
+    const bgImageRef = useRef(new Image());
+    const selfieSegmentationRef = useRef(null);
+    const renderLoopRef = useRef(null); // 수동 프레임 루프 관리를 위한 Ref
+    
+    // 시선 영점 조절용 State
+    const [baselineNose, setBaselineNose] = useState(0.5);
+    const [baselineIris, setBaselineIris] = useState(0.5);
+    const [calibrationCountdown, setCalibrationCountdown] = useState(0);
 
     const candidateDelayTimerRef = useRef(null);
 
@@ -81,9 +93,8 @@ function Interview() {
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
 
-    const [isCameraActive, setIsCameraActive] = useState(false); // 추가된 상태
+    const [isCameraActive, setIsCameraActive] = useState(false); 
 
-    // 나중에 제거
     const [answerMode, setAnswerMode] = useState('voice');
     const [answerText, setAnswerText] = useState('');
 
@@ -217,11 +228,6 @@ function Interview() {
         }
     };
 
-    /*
-     * MuseTalk 아바타 영상을 완성될 때까지 기다리지 않고, 도착하는 대로
-     * MediaSource(MSE)에 흘려 넣어 재생합니다 (MoodTender 프로젝트의
-     * stream_inference.py + _generateStream 패턴을 이식).
-     */
     const playInterviewerVideoStream = async (
         text,
         avatar,
@@ -233,7 +239,6 @@ function Interview() {
             return false;
         }
 
-        // 이전 질문 영상 생성이 진행 중이면 취소
         if (interviewerStreamAbortRef.current) {
             interviewerStreamAbortRef.current.abort();
         }
@@ -241,7 +246,6 @@ function Interview() {
         const abortController = new AbortController();
         interviewerStreamAbortRef.current = abortController;
 
-        // 이전 스트리밍 영상 URL 정리
         if (interviewerVideoUrlRef.current) {
             URL.revokeObjectURL(
                 interviewerVideoUrlRef.current,
@@ -266,10 +270,6 @@ function Interview() {
             return false;
         }
 
-        /*
-         * 백엔드 영상의 첫 데이터가 도착하기 전까지는
-         * 기본 면접관 영상을 계속 재생하기 위해 나중에 생성합니다.
-         */
         let mediaSource = null;
         let sourceBuffer = null;
 
@@ -511,10 +511,6 @@ function Interview() {
                     continue;
                 }
 
-                /*
-                 * 첫 번째 영상 데이터가 실제로 도착한 순간에만
-                 * 기본 영상에서 백엔드 영상으로 전환
-                 */
                 if (!started) {
                     await initializeStreamVideo();
                 }
@@ -523,7 +519,6 @@ function Interview() {
                 flushQueue();
             }
 
-            // 데이터가 하나도 오지 않은 경우
             if (!started) {
                 console.error(
                     '[interview] 생성된 아바타 영상 데이터가 없습니다.',
@@ -673,16 +668,12 @@ function Interview() {
             requestAnimationFrame(animateVideo);
     };
 
-    /*
-     * HTTP 주소를 WebSocket 주소로 변경
-     */
     const getWebSocketUrl = () => {
         return API_BASE_URL
             .replace(/^http:/, 'ws:')
             .replace(/^https:/, 'wss:');
     };
 
-    // 1. 면접 페이지 진입 시 백엔드 세션 생성
     const createInterviewSession = async () => {
         try {
             const savedUser = localStorage.getItem('user');
@@ -897,7 +888,7 @@ function Interview() {
                 `기존 이력서를 바탕으로 ${data.question_count}개의 면접 질문이 생성되었습니다.`,
             );
 
-            connectWebSocket();
+            startVisionCalibration(); // 웹캠 영점 조절 단계로 이동
         } catch (error) {
             console.error('기존 이력서 사용 오류:', error);
 
@@ -911,7 +902,6 @@ function Interview() {
         }
     };
 
-    // 2. 음성 등록
     const handleRecord = async () => {
         if (
             isBaselineRecording ||
@@ -991,7 +981,6 @@ function Interview() {
                 setBaselineSeconds((prev) => {
                     const nextSeconds = prev + 1;
 
-                    // 최대 60초가 지나면 자동 종료
                     if (nextSeconds >= 60) {
                         setTimeout(() => {
                             stopBaselineRecording();
@@ -1210,7 +1199,6 @@ function Interview() {
         }, 0);
     };
 
-    // 3. 실제 파일 선택창 열기
     const handleResumeButton = () => {
         if (!sessionId || isResumeUploading) {
             return;
@@ -1219,7 +1207,6 @@ function Interview() {
         fileInputRef.current?.click();
     };
 
-    // 4. PDF를 백엔드로 업로드
     const uploadResumeFile = async (file) => {
         if (!file) {
             addMessage(
@@ -1271,7 +1258,7 @@ function Interview() {
                 `${data.question_count}개의 맞춤 면접 질문이 생성되었습니다.`,
             );
 
-            connectWebSocket();
+            startVisionCalibration(); // 웹캠 영점 조절 단계로 이동
         } catch (error) {
             console.error('이력서 업로드 오류:', error);
 
@@ -1285,7 +1272,6 @@ function Interview() {
         }
     };
 
-    // 새 이력서 선택
     const handleResumeChange = async (event) => {
         const file = event.target.files?.[0];
 
@@ -1305,11 +1291,64 @@ function Interview() {
 
         await uploadResumeFile(file);
 
-        // 같은 파일을 다시 선택할 수 있도록 초기화
         event.target.value = '';
     };
 
-    // 5. 백엔드 WebSocket 연결
+    const startVisionCalibration = () => {
+        if (!isCameraActive) {
+            startUserCamera(); // 카메라가 꺼져있다면 강제 실행
+        }
+        
+        setStep('calibrate_vision');
+        setCalibrationCountdown(3);
+        addMessage('system', '정확한 시선 분석을 위해 화면 속 면접관의 눈을 바라봐 주세요.');
+
+        let countdown = 3;
+        const capturedFrames = [];
+
+        const timer = setInterval(() => {
+            countdown -= 1;
+            setCalibrationCountdown(countdown);
+
+            if (canvasRef.current) {
+                const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.5);
+                capturedFrames.push(base64Image);
+            }
+
+            if (countdown === 0) {
+                clearInterval(timer);
+                finishVisionCalibration(capturedFrames);
+            }
+        }, 1000);
+    };
+
+    const finishVisionCalibration = async (frames) => {
+        addMessage('system', '시선 추적 기준점을 계산하고 있습니다...');
+        try {
+            const response = await fetch(`${API_BASE_URL}/interviews/calibrate-vision`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ frames })
+            });
+
+            const data = await response.json();
+            
+            if (response.ok) {
+                setBaselineNose(data.baseline_nose);
+                setBaselineIris(data.baseline_iris);
+                addMessage('system', '영점 조절이 완료되었습니다. 곧 면접이 시작됩니다.');
+            } else {
+                throw new Error("분석 실패");
+            }
+        } catch (error) {
+            console.error('Vision Calibration Error:', error);
+            setBaselineNose(0.5);
+            setBaselineIris(0.5);
+        } finally {
+            connectWebSocket();
+        }
+    };
+
     const connectWebSocket = () => {
         if (!sessionId) {
             addMessage(
@@ -1386,7 +1425,6 @@ function Interview() {
                         data.avatar,
                         data.duo_avatar_type,
                     ).then((success) => {
-                        // 이전 질문의 비동기 작업이 현재 질문 상태를 건드리지 않도록 방지
                         if (
                             success === false &&
                             interviewerPlaybackIdRef.current === playbackId
@@ -1406,19 +1444,6 @@ function Interview() {
                         shuffleCandidateAnswers(
                             data.candidate_answers ?? [],
                         ),
-                    );
-
-                    return;
-                }
-
-                if (data.type === 'audio_analysis_status') {
-                    console.log(
-                        'Jitter:',
-                        data.current_jitter,
-                    );
-                    console.log(
-                        'Shimmer:',
-                        data.current_shimmer,
                     );
 
                     return;
@@ -1827,49 +1852,115 @@ function Interview() {
         }
     };
 
+    // 🚀 수정: 버그가 많은 MediaPipe Camera 클래스 대신, 네이티브 getUserMedia 및 requestAnimationFrame 루프를 직접 사용
     const startUserCamera = async () => {
-        if (!navigator.mediaDevices?.getUserMedia) {
-            console.error('현재 브라우저에서는 카메라를 지원하지 않습니다.');
-            return;
-        }
-
         try {
-            const videoStream =
-                await navigator.mediaDevices.getUserMedia({
-                    video: {
-                        width: { ideal: 640 },
-                        height: { ideal: 360 },
-                    },
-                    audio: false,
-                });
+            const MP_SelfieSegmentation = window.SelfieSegmentation;
 
-            userCameraStreamRef.current = videoStream;
-
-            if (userVideoRef.current) {
-                userVideoRef.current.srcObject = videoStream;
-
-                await userVideoRef.current.play().catch((error) => {
-                    if (error.name !== 'AbortError') {
-                        console.error('사용자 영상 재생 오류:', error);
-                    }
-                });
+            if (!MP_SelfieSegmentation) {
+                console.error("MediaPipe 라이브러리가 아직 로드되지 않았습니다.");
+                addMessage('system', '카메라 모듈을 로드하는 중입니다. 잠시 후 다시 켜주세요 (또는 브라우저 새로고침을 해주세요).');
+                setIsCameraActive(false);
+                return;
             }
 
-            setIsCameraActive(true);
+            const videoElement = userVideoRef.current;
+            const canvasElement = canvasRef.current;
+            const canvasCtx = canvasElement.getContext('2d');
+
+            bgImageRef.current.src = '/office_background.jpg'; // 배경 이미지 경로 (public 폴더 기준)
+
+            const selfieSegmentation = new MP_SelfieSegmentation({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
+            });
+
+            selfieSegmentation.setOptions({
+                modelSelection: 1, // 1: 성능/속도 우선
+            });
+
+            selfieSegmentation.onResults((results) => {
+                canvasCtx.save();
+                canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+                // 1. 마스크(실루엣) 그리기
+                canvasCtx.globalCompositeOperation = 'source-over';
+                canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
+
+                // 2. 마스크 안쪽에만 실제 웹캠 이미지(내 얼굴) 채워 넣기
+                canvasCtx.globalCompositeOperation = 'source-in';
+                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+                // 3. 인물 뒤쪽으로 가짜 배경 밀어넣기
+                canvasCtx.globalCompositeOperation = 'destination-over';
+                if (bgImageRef.current.complete && bgImageRef.current.naturalWidth > 0) {
+                    canvasCtx.drawImage(bgImageRef.current, 0, 0, canvasElement.width, canvasElement.height);
+                } else {
+                    canvasCtx.fillStyle = '#333333'; // 이미지 로딩 전 기본 배경색
+                    canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+                }
+
+                canvasCtx.restore();
+            });
+
+            selfieSegmentationRef.current = selfieSegmentation;
+
+            // MediaPipe Camera 래퍼를 사용하지 않고 직접 웹캠 스트림 요청
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 640 }, height: { ideal: 360 } },
+                audio: false
+            });
+
+            videoElement.srcObject = stream;
+
+            videoElement.onloadedmetadata = () => {
+                videoElement.play();
+                
+                let lastVideoTime = -1;
+                let isProcessing = false; // 중복 처리 방지용 락(Lock)
+
+                // 🚀 핵심 수정: 브라우저 렌더링 프레임 단위로 수동 업데이트 루프 생성 (멈춤 버그 완벽 방지)
+                const processFrame = async () => {
+                    // 비디오가 멈췄거나 종료되었으면 루프 무시
+                    if (!videoElement.paused && !videoElement.ended && videoElement.readyState >= 2) {
+                        // 프레임 시간이 갱신되었고, 이전 처리가 끝났을 때만 send 호출
+                        if (videoElement.currentTime !== lastVideoTime && !isProcessing) {
+                            isProcessing = true;
+                            lastVideoTime = videoElement.currentTime;
+                            try {
+                                await selfieSegmentation.send({ image: videoElement });
+                            } catch (e) {
+                                console.error("프레임 전송 오류:", e);
+                            } finally {
+                                isProcessing = false;
+                            }
+                        }
+                    }
+                    renderLoopRef.current = requestAnimationFrame(processFrame);
+                };
+                
+                renderLoopRef.current = requestAnimationFrame(processFrame);
+                setIsCameraActive(true);
+            };
+
         } catch (error) {
-            console.error('웹캠 연결 오류:', error);
+            console.error('웹캠 연결 및 AI 초기화 오류:', error);
             setIsCameraActive(false);
         }
     };
 
     const stopUserCamera = () => {
-        userCameraStreamRef.current
-            ?.getTracks()
-            .forEach((track) => track.stop());
+        if (renderLoopRef.current) {
+            cancelAnimationFrame(renderLoopRef.current);
+            renderLoopRef.current = null;
+        }
 
-        userCameraStreamRef.current = null;
+        if (selfieSegmentationRef.current) {
+            selfieSegmentationRef.current.close();
+            selfieSegmentationRef.current = null;
+        }
 
-        if (userVideoRef.current) {
+        if (userVideoRef.current && userVideoRef.current.srcObject) {
+            userVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
             userVideoRef.current.pause();
             userVideoRef.current.srcObject = null;
         }
@@ -1882,19 +1973,35 @@ function Interview() {
             stopUserCamera();
             return;
         }
-
         startUserCamera();
     };
 
-    // 페이지 진입 시 사용자 카메라 자동 실행
     useEffect(() => {
+        let interval;
+        if (step === 'answer' && isCameraActive && websocketRef.current?.readyState === WebSocket.OPEN) {
+            interval = setInterval(() => {
+                if (canvasRef.current) {
+                    // 품질 0.6으로 압축하여 Base64로 전송
+                    const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.6);
+                    websocketRef.current.send(
+                        JSON.stringify({
+                            type: 'video_frame',
+                            image: base64Image,
+                            baseline_nose: baselineNose,
+                            baseline_iris: baselineIris
+                        })
+                    );
+                }
+            }, 1000); // 1초(1000ms) 주기
+        }
 
+        return () => clearInterval(interval);
+    }, [step, isCameraActive, baselineNose, baselineIris]);
+
+
+    useEffect(() => {
         return () => {
-            userCameraStreamRef.current
-                ?.getTracks()
-                .forEach((track) => track.stop());
-
-            userCameraStreamRef.current = null;
+            stopUserCamera(); // 컴포넌트 언마운트 시 리소스 해제
         };
     }, []);
 
@@ -2198,6 +2305,19 @@ function Interview() {
                     {isResumeUploading
                         ? '이력서 분석 중...'
                         : '이력서 업로드'}
+                </button>
+            );
+        }
+
+        if (step === 'calibrate_vision') {
+            return (
+                <button
+                    type="button"
+                    className="interview-action-button record-button recording"
+                    disabled
+                >
+                    <span className="action-icon">👁️</span>
+                    화면 속 면접관의 눈을 바라보세요 ({calibrationCountdown}초)
                 </button>
             );
         }
@@ -2709,6 +2829,7 @@ function Interview() {
                         (isResumeUploading
                             ? '이력서 분석 중'
                             : '이력서 업로드 대기')}
+                    {step === 'calibrate_vision' && '시선 영점 분석 중'}
 
                     {step === 'answer' &&
                         (isRecordingAnswer
@@ -2832,11 +2953,27 @@ function Interview() {
 
             <aside className="interview-right">
                 <section className="user-camera-area">
+                    {/* 🚀 수정: 브라우저가 영상을 멈추지 않도록 투명도 0.001 지정, 위치 겹침 방지 */}
                     <video
                         ref={userVideoRef}
                         autoPlay
                         playsInline
                         muted
+                        style={{
+                            position: 'absolute',
+                            left: 0,
+                            top: 0,
+                            width: '100%',
+                            height: '100%',
+                            opacity: 0.001,
+                            zIndex: -1,
+                            pointerEvents: 'none',
+                        }}
+                    />
+                    <canvas
+                        ref={canvasRef}
+                        width={640}
+                        height={360}
                         className={`user-video ${isCameraActive ? 'active' : ''}`}
                     />
 

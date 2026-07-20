@@ -421,7 +421,7 @@
     background: #161a23;
 }
 
-/* --- 추가된 사용자 웹캠 영역 --- */
+/* --- 수정된 사용자 웹캠 영역 (MediaPipe 캔버스 지원) --- */
 .user-camera-area {
     flex: 0 0 240px;
     width: 100%;
@@ -440,12 +440,13 @@
     object-fit: cover;
     transform: scaleX(-1);
     /* 좌우 반전(거울 모드) */
-    opacity: 1;
+    opacity: 0; /* 카메라가 꺼져있을 때 투명하게 설정 */
     transition: opacity 0.3s ease;
+    background-color: #0a0d15;
 }
 
 .user-video.active {
-    opacity: 1;
+    opacity: 1; /* 카메라가 활성화되면 부드럽게 나타남 */
 }
 
 .camera-placeholder {
@@ -503,7 +504,6 @@
 .camera-toggle-button.camera-off {
     background: rgba(215, 55, 73, 0.88);
 }
-
 /* ------------------------ */
 
 .chat-area {

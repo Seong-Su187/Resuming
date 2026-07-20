@@ -247,6 +247,34 @@ async def avatar_video_stream(payload: dict = Body(...)):
     return StreamingResponse(proxy_stream(), media_type="video/mp4")
 
 
+# 🚀 신규: 영점 조절 프레임 분석 엔드포인트
+@router.post("/calibrate-vision")
+async def calibrate_vision_endpoint(payload: dict = Body(...)):
+    """
+    웹캠 영점 조절(Calibration)을 위해 캡처된 프레임들을 받아 분석합니다.
+    분석을 통해 사용자의 고유한 코(Nose)와 홍채(Iris) 기준점 위치를 반환합니다.
+    """
+    frames = payload.get("frames", [])
+    
+    if not frames:
+        return {"baseline_nose": 0.5, "baseline_iris": 0.5}
+
+    try:
+        # vision_analyzer에 calculate_baselines가 새로 추가되었다고 가정하고 임포트
+        from vision_analyzer import calculate_baselines
+        nose, iris = calculate_baselines(frames)
+        return {
+            "baseline_nose": nose, 
+            "baseline_iris": iris
+        }
+    except ImportError:
+        # 아직 vision_analyzer.py에 구현이 안되어 있을 경우 기본 중앙값으로 Fallback 처리
+        return {"baseline_nose": 0.5, "baseline_iris": 0.5}
+    except Exception as e:
+        print(f"[Calibration Error] 영점 조절 분석 중 오류: {e}")
+        return {"baseline_nose": 0.5, "baseline_iris": 0.5}
+
+
 @router.post("/session")
 def create_interview_session(data: SessionCreateRequest, db: Session = Depends(get_db)):
     """신규 모의 면접 세션을 생성하고 고유 세션 ID 반환 API"""
@@ -985,11 +1013,21 @@ async def websocket_interview_endpoint(
                     selected_candidates,
                 )
 
-            # 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석
+            # 🚀 수정: 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석 및 기준점 적용
             elif message_type == "video_frame":
                 b64_image = data.get("image", "")
-                if b64_image and check_gaze_loss(b64_image):
-                    current_gaze_loss_count += 1
+                baseline_nose = data.get("baseline_nose", 0.5)
+                baseline_iris = data.get("baseline_iris", 0.5)
+                
+                if b64_image:
+                    try:
+                        # 영점 조절된 기준값을 반영하여 시선 이탈 여부 판단
+                        if check_gaze_loss(b64_image, baseline_nose, baseline_iris):
+                            current_gaze_loss_count += 1
+                    except TypeError:
+                        # vision_analyzer.py의 check_gaze_loss가 아직 새 파라미터를 받지 못하는 경우 Fallback
+                        if check_gaze_loss(b64_image):
+                            current_gaze_loss_count += 1
 
             elif message_type == "submit_answer":
                 user_text = data.get(
