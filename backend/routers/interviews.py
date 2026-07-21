@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import re
 import time
 import uuid
 import httpx
@@ -198,11 +199,41 @@ async def send_next_question(
     await websocket.send_json(payload)
 
 
+def split_into_sentences(text: str) -> list[str]:
+    """
+    문장 종결부호(. ? !) 기준으로 텍스트를 나눕니다.
+    너무 짧은 조각(5자 미만)은 앞 문장에 이어붙여서, 지나치게 잘게 쪼개지지 않게 합니다.
+    """
+    raw_parts = re.split(r"(?<=[.!?])\s+", text.strip())
+    sentences = [part.strip() for part in raw_parts if part.strip()]
+
+    merged: list[str] = []
+    for sentence in sentences:
+        if merged and len(sentence) < 5:
+            merged[-1] = f"{merged[-1]} {sentence}"
+        else:
+            merged.append(sentence)
+
+    return merged if merged else [text]
+
+
+async def _generate_tts_chunk_base64(text: str, voice: str) -> str:
+    tts_path = f"temp_stream_tts_{uuid.uuid4()}.mp3"
+    try:
+        await asyncio.to_thread(generate_text_to_speech, text, tts_path, voice)
+        with open(tts_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8")
+    finally:
+        if os.path.exists(tts_path):
+            os.remove(tts_path)
+
+
 @router.post("/avatar-video-stream")
 async def avatar_video_stream(payload: dict = Body(...)):
     """
-    질문 텍스트를 TTS로 변환해서 Colab 듀오 서버의 실시간 스트리밍 엔드포인트로 보내고,
-    그 응답(fMP4 청크 스트림)을 그대로 프론트로 중계합니다.
+    질문 텍스트를 문장 단위로 쪼개서 TTS를 순차 생성하고, 문장이 준비되는 대로
+    바로 Colab 듀오 서버의 실시간 스트리밍 엔드포인트로 보내 이어붙여 중계합니다.
+    (실험: 문장 단위 파이프라이닝 — 다음 문장 TTS는 이전 문장 영상 스트리밍과 병렬로 미리 생성)
     프론트는 전체 영상이 완성되길 기다리지 않고 MediaSource로 도착하는 대로 재생합니다.
     """
     question_text = payload.get("text", "")
@@ -216,33 +247,42 @@ async def avatar_video_stream(payload: dict = Body(...)):
     if not duo_stream_url:
         raise HTTPException(status_code=503, detail="MUSETALK_DUO_STREAM_URL이 설정되지 않았습니다 (.env 확인).")
 
-    t0 = time.time()
     voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
-    tts_path = f"temp_stream_tts_{uuid.uuid4()}.mp3"
-    generate_text_to_speech(question_text, tts_path, voice=voice)
-    print(f"[stream-timing] TTS 완료: {time.time() - t0:.2f}초", flush=True)
-
-    try:
-        with open(tts_path, "rb") as f:
-            audio_base64 = base64.b64encode(f.read()).decode("utf-8")
-    finally:
-        if os.path.exists(tts_path):
-            os.remove(tts_path)
+    sentences = split_into_sentences(question_text)
 
     async def proxy_stream():
-        first_chunk_logged = False
+        t0 = time.time()
+        print(f"[stream-timing] 문장 {len(sentences)}개로 분리", flush=True)
+
+        next_audio_task = asyncio.create_task(
+            _generate_tts_chunk_base64(sentences[0], voice)
+        )
+
         async with httpx.AsyncClient(timeout=None) as client:
-            print(f"[stream-timing] 코랩에 요청 전송: {time.time() - t0:.2f}초", flush=True)
-            async with client.stream(
-                "POST",
-                duo_stream_url,
-                json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
-            ) as response:
-                async for chunk in response.aiter_bytes():
-                    if not first_chunk_logged:
-                        print(f"[stream-timing] 코랩에서 첫 청크 수신: {time.time() - t0:.2f}초", flush=True)
-                        first_chunk_logged = True
-                    yield chunk
+            for i, _sentence in enumerate(sentences):
+                audio_base64 = await next_audio_task
+                print(f"[stream-timing] 문장{i + 1} TTS 완료: {time.time() - t0:.2f}초", flush=True)
+
+                # 다음 문장 TTS는 지금 문장 영상이 스트리밍되는 동안 병렬로 미리 준비
+                if i + 1 < len(sentences):
+                    next_audio_task = asyncio.create_task(
+                        _generate_tts_chunk_base64(sentences[i + 1], voice)
+                    )
+
+                first_chunk_logged = False
+                async with client.stream(
+                    "POST",
+                    duo_stream_url,
+                    json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
+                ) as response:
+                    async for chunk in response.aiter_bytes():
+                        if not first_chunk_logged:
+                            print(
+                                f"[stream-timing] 문장{i + 1} 코랩 첫 청크 수신: {time.time() - t0:.2f}초",
+                                flush=True,
+                            )
+                            first_chunk_logged = True
+                        yield chunk
 
     return StreamingResponse(proxy_stream(), media_type="video/mp4")
 

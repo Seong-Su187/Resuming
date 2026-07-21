@@ -416,6 +416,12 @@ function Interview() {
             sourceBuffer =
                 mediaSource.addSourceBuffer(MIME);
 
+            // 문장별로 독립 생성된 mp4 조각들은 각자 타임스탬프가 0부터 다시 시작되므로,
+            // 자체 타임스탬프를 무시하고 도착 순서대로 이어붙이는 'sequence' 모드로 설정합니다.
+            // (기본값인 'segments' 모드는 겹치는 타임스탬프를 같은 구간으로 취급해
+            // 뒤에 온 문장이 덮어써진 것처럼 사라지는 문제가 있었습니다.)
+            sourceBuffer.mode = 'sequence';
+
             sourceBuffer.addEventListener(
                 'updateend',
                 () => {
