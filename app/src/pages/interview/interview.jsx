@@ -3297,6 +3297,21 @@ function Interview() {
                         />
                     ))}
 
+                    {step === 'calibrate_vision' && (
+                        <div
+                            className={`calibration-target-box ${calibrationPhase.startsWith('hr')
+                                ? 'calibration-target-hr'
+                                : 'calibration-target-tech'
+                                }`}
+                        >
+                            <span>
+                                {calibrationPhase.startsWith('hr')
+                                    ? '인사 면접관의 눈을 바라보세요'
+                                    : '기술 면접관의 눈을 바라보세요'}
+                            </span>
+                        </div>
+                    )}
+
                     <video
                         ref={interviewerStreamVideoRef}
                         className={`interviewer-avatar-video interviewer-stream-video ${isInterviewerStreamVisible ? 'visible' : ''
