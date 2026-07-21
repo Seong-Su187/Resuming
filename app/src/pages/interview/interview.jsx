@@ -8,26 +8,57 @@ import './interview.css';
 function Interview() {
     const navigate = useNavigate();
 
-    const DEFAULT_INTERVIEWER_VIDEO_URL =
-        '/assets/interviewer-avatar-video.mp4';
+    const INTERVIEWER_DEFAULT_VIDEOS = [
+        {
+            url: '/assets/interviewer-avatar-video1.mp4',
+            probability: 0.4,
+        },
+        {
+            url: '/assets/interviewer-avatar-video2.mp4',
+            probability: 0.4,
+        },
+        {
+            url: '/assets/interviewer-avatar-video3.mp4',
+            probability: 0.1,
+        },
+        {
+            url: '/assets/interviewer-avatar-video4.mp4',
+            probability: 0.1,
+        },
+    ];
+
+    const getRandomInterviewerDefaultVideo = () => {
+        const randomValue = Math.random();
+        let accumulatedProbability = 0;
+
+        for (const video of INTERVIEWER_DEFAULT_VIDEOS) {
+            accumulatedProbability += video.probability;
+
+            if (randomValue < accumulatedProbability) {
+                return video.url;
+            }
+        }
+
+        return INTERVIEWER_DEFAULT_VIDEOS[0].url;
+    };
 
     const fileInputRef = useRef(null);
     const chatEndRef = useRef(null);
     const websocketRef = useRef(null);
     const sessionCreatedRef = useRef(false);
-    
+
     // 웹캠 및 비전 AI 처리 Refs
-    const userVideoRef = useRef(null); 
+    const userVideoRef = useRef(null);
     const canvasRef = useRef(null);
     const bgImageRef = useRef(new Image());
     const selfieSegmentationRef = useRef(null);
     const renderLoopRef = useRef(null); // 수동 프레임 루프 관리를 위한 Ref
-    
+
     // 시선 영점 조절용 State (2단계)
     const [calibrationPhase, setCalibrationPhase] = useState('hr_ready'); // hr_ready, hr_calibrating, tech_ready, tech_calibrating
-    const [baselines, setBaselines] = useState({ 
-        hrNose: 0.5, hrIris: 0.5, 
-        techNose: 0.5, techIris: 0.5 
+    const [baselines, setBaselines] = useState({
+        hrNose: 0.5, hrIris: 0.5,
+        techNose: 0.5, techIris: 0.5
     });
     const [calibrationCountdown, setCalibrationCountdown] = useState(0);
 
@@ -39,6 +70,7 @@ function Interview() {
     const isRecordingAnswerRef = useRef(false);
     const isStartingAnswerRecordingRef = useRef(false);
     const pendingUserAnswerRef = useRef(null);
+    const developerInterviewEndingRef = useRef(false);
 
     const candidateTypingTimerRef = useRef(null);
     const candidateFinishTimerRef = useRef(null);
@@ -61,6 +93,7 @@ function Interview() {
 
     const interviewerPlaybackIdRef = useRef(0);
     const isInterviewerStreamPlayingRef = useRef(false);
+    const isDefaultVideoTransitioningRef = useRef(false);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
@@ -84,7 +117,10 @@ function Interview() {
     const [candidateTransition, setCandidateTransition] = useState('');
     const [isCandidateSceneReady, setIsCandidateSceneReady] = useState(false);
 
-    const interviewerDefaultVideoRef = useRef(null);
+    const interviewerDefaultVideoRefs = [
+        useRef(null),
+        useRef(null),
+    ];
     const interviewerStreamVideoRef = useRef(null);
     const interviewerVideoUrlRef = useRef(null);
     const interviewerStreamAbortRef = useRef(null);
@@ -92,14 +128,37 @@ function Interview() {
     const [isInterviewerStreamVisible, setIsInterviewerStreamVisible] =
         useState(false);
 
+    const [interviewerDefaultVideos, setInterviewerDefaultVideos] = useState(() => [
+        getRandomInterviewerDefaultVideo(),
+        '',
+    ]);
+
+    const [activeDefaultVideoIndex, setActiveDefaultVideoIndex] = useState(0);
+
     const [isRecordingAnswer, setIsRecordingAnswer] = useState(false);
     const [isResumeUploading, setIsResumeUploading] = useState(false);
     const [hasExistingResume, setHasExistingResume] = useState(false);
     const [isResumeChecking, setIsResumeChecking] = useState(false);
 
-    const [isCameraActive, setIsCameraActive] = useState(false); 
+    const [isCameraActive, setIsCameraActive] = useState(false);
+
+    // 카메라 사용 여부 선택 모달
+    const [isCameraChoiceModalOpen, setIsCameraChoiceModalOpen] =
+        useState(true);
+
+    // null: 확인 중, true: 카메라 있음, false: 카메라 없음
+    const [hasCameraDevice, setHasCameraDevice] = useState(null);
+
+    // 사용자가 카메라 사용을 선택했는지 여부
+    const [cameraUsageEnabled, setCameraUsageEnabled] = useState(false);
 
     const [answerMode, setAnswerMode] = useState('voice');
+    const [interviewMode, setInterviewMode] = useState(() => {
+        return localStorage.getItem('interviewMode') || 'user';
+    });
+    const interviewModeRef = useRef(
+        localStorage.getItem('interviewMode') || 'user',
+    );
     const [answerText, setAnswerText] = useState('');
 
     const [isBaselineRecording, setIsBaselineRecording] = useState(false);
@@ -117,6 +176,16 @@ function Interview() {
     const [isProcessingAnswer, setIsProcessingAnswer] = useState(false);
 
     const [isInterviewerSpeaking, setIsInterviewerSpeaking] = useState(false);
+
+    const changeInterviewMode = (mode) => {
+        if (isRecordingAnswer || isStartingAnswerRecording || isProcessingAnswer) {
+            return;
+        }
+
+        localStorage.setItem('interviewMode', mode);
+        interviewModeRef.current = mode;
+        setInterviewMode(mode);
+    };
 
     const baselineGuideText = `
         안녕하세요. 지금부터 기본 음성 등록을 시작하겠습니다.
@@ -145,6 +214,27 @@ function Interview() {
             text: '면접 세션을 준비하고 있습니다.',
         },
     ]);
+
+    const checkCameraDevice = async () => {
+        if (!navigator.mediaDevices?.enumerateDevices) {
+            setHasCameraDevice(false);
+            return;
+        }
+
+        try {
+            const devices =
+                await navigator.mediaDevices.enumerateDevices();
+
+            const hasVideoInput = devices.some(
+                (device) => device.kind === 'videoinput',
+            );
+
+            setHasCameraDevice(hasVideoInput);
+        } catch (error) {
+            console.error('카메라 장치 확인 오류:', error);
+            setHasCameraDevice(false);
+        }
+    };
 
     const isCandidateSpeaking = Boolean(activeCandidateAnswer);
 
@@ -196,15 +286,93 @@ function Interview() {
         return shuffled;
     };
 
-    const restoreDefaultInterviewerVideo = () => {
-        const defaultVideo =
-            interviewerDefaultVideoRef.current;
+    const playNextDefaultInterviewerVideo = () => {
+        if (isDefaultVideoTransitioningRef.current) {
+            return;
+        }
 
+        isDefaultVideoTransitioningRef.current = true;
+
+        const currentIndex = activeDefaultVideoIndex;
+        const nextIndex = currentIndex === 0 ? 1 : 0;
+
+        const currentVideo =
+            interviewerDefaultVideoRefs[currentIndex].current;
+
+        const nextVideo =
+            interviewerDefaultVideoRefs[nextIndex].current;
+
+        if (!nextVideo) {
+            isDefaultVideoTransitioningRef.current = false;
+            return;
+        }
+
+        const nextVideoUrl =
+            getRandomInterviewerDefaultVideo();
+
+        const handleCanPlay = async () => {
+            nextVideo.removeEventListener(
+                'canplay',
+                handleCanPlay,
+            );
+
+            try {
+                nextVideo.currentTime = 0;
+                await nextVideo.play();
+
+                // 다음 영상이 실제로 재생된 다음 화면 전환
+                setActiveDefaultVideoIndex(nextIndex);
+
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (currentVideo) {
+                            currentVideo.pause();
+                            currentVideo.currentTime = 0;
+                        }
+
+                        isDefaultVideoTransitioningRef.current = false;
+                    });
+                });
+            } catch (error) {
+                isDefaultVideoTransitioningRef.current = false;
+
+                if (error.name !== 'AbortError') {
+                    console.error(
+                        '[interview] 다음 기본 영상 재생 오류:',
+                        error,
+                    );
+                }
+            }
+        };
+
+        nextVideo.addEventListener(
+            'canplay',
+            handleCanPlay,
+            { once: true },
+        );
+
+        nextVideo.pause();
+        nextVideo.src = nextVideoUrl;
+        nextVideo.load();
+
+        setInterviewerDefaultVideos((previousVideos) => {
+            const updatedVideos = [...previousVideos];
+            updatedVideos[nextIndex] = nextVideoUrl;
+            return updatedVideos;
+        });
+    };
+
+    const restoreDefaultInterviewerVideo = () => {
         const streamVideo =
             interviewerStreamVideoRef.current;
 
         isInterviewerStreamPlayingRef.current = false;
         setIsInterviewerStreamVisible(false);
+
+        if (interviewerStreamAbortRef.current) {
+            interviewerStreamAbortRef.current.abort();
+            interviewerStreamAbortRef.current = null;
+        }
 
         if (streamVideo) {
             streamVideo.pause();
@@ -220,16 +388,7 @@ function Interview() {
             interviewerVideoUrlRef.current = null;
         }
 
-        if (defaultVideo) {
-            defaultVideo.play().catch((error) => {
-                if (error.name !== 'AbortError') {
-                    console.error(
-                        '[interview] 기본 면접관 영상 재생 오류:',
-                        error,
-                    );
-                }
-            });
-        }
+        playNextDefaultInterviewerVideo();
     };
 
     const playInterviewerVideoStream = async (
@@ -1304,15 +1463,46 @@ function Interview() {
         event.target.value = '';
     };
 
-    const startVisionCalibration = () => {
-        if (!isCameraActive) {
-            startUserCamera(); // 카메라가 꺼져있다면 강제 실행
+    const startVisionCalibration = async () => {
+        // 사용자가 카메라 미사용을 선택했거나 카메라가 없는 경우
+        if (
+            !cameraUsageEnabled ||
+            hasCameraDevice === false
+        ) {
+            addMessage(
+                'system',
+                '카메라를 사용하지 않아 시선 영점 조절을 건너뜁니다. 곧 면접이 시작됩니다.',
+            );
+
+            connectWebSocket();
+            return;
         }
-        
+
+        // 사용하기로 했지만 현재 카메라가 꺼져 있는 경우
+        if (!isCameraActive) {
+            const cameraStarted = await startUserCamera();
+
+            if (!cameraStarted) {
+                setCameraUsageEnabled(false);
+
+                addMessage(
+                    'system',
+                    '카메라를 실행하지 못해 시선 영점 조절 없이 면접을 시작합니다.',
+                );
+
+                connectWebSocket();
+                return;
+            }
+        }
+
         setStep('calibrate_vision');
-        setCalibrationPhase('hr_ready'); // 첫 번째 단계: 인사 면접관(왼쪽) 대기
-        setCalibrationCountdown(3); 
-        addMessage('system', '시선 추적을 위한 영점 조절을 2단계로 진행합니다. 먼저 왼쪽에 있는 인사 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.');
+        setCalibrationPhase('hr_ready');
+        setCalibrationCountdown(3);
+
+        addMessage(
+            'system',
+            '시선 추적을 위한 영점 조절을 2단계로 진행합니다. 먼저 왼쪽에 있는 인사 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.',
+        );
     };
 
     const handleStartCalibration = () => {
@@ -1358,7 +1548,7 @@ function Interview() {
             });
 
             const data = await response.json();
-            
+
             if (response.ok) {
                 if (type === 'hr') {
                     setBaselines(prev => ({ ...prev, hrNose: data.baseline_nose, hrIris: data.baseline_iris }));
@@ -1417,6 +1607,8 @@ function Interview() {
                 console.log('WebSocket 수신:', data);
 
                 if (data.type === 'connection_established') {
+                    developerInterviewEndingRef.current = false;
+
                     websocket.send(
                         JSON.stringify({
                             type: 'start_interview',
@@ -1428,6 +1620,10 @@ function Interview() {
                 }
 
                 if (data.type === 'next_question') {
+                    if (developerInterviewEndingRef.current) {
+                        return;
+                    }
+
                     clearTimeout(candidateDelayTimerRef.current);
 
                     pendingUserAnswerRef.current = null;
@@ -1495,6 +1691,25 @@ function Interview() {
                         'system',
                         `답변 평가 ${data.score}점\n${data.feedback}`,
                     );
+
+                    if (
+                        interviewModeRef.current === 'developer' &&
+                        developerInterviewEndingRef.current
+                    ) {
+                        setStep('complete');
+                        setCandidateAnswerQueue([]);
+                        setActiveCandidateAnswer(null);
+                        setTypedCandidateText('');
+                        setCandidateTransition('');
+                        setIsCandidateSceneReady(false);
+
+                        addMessage(
+                            'system',
+                            '개발자 모드이므로 1회 질문·답변 후 면접을 종료합니다.',
+                        );
+
+                        websocket.close();
+                    }
 
                     return;
                 }
@@ -1901,7 +2116,7 @@ function Interview() {
                 console.error("MediaPipe 라이브러리가 아직 로드되지 않았습니다.");
                 addMessage('system', '카메라 모듈을 로드하는 중입니다. 잠시 후 다시 켜주세요 (또는 브라우저 새로고침을 해주세요).');
                 setIsCameraActive(false);
-                return;
+                return false;
             }
 
             const videoElement = userVideoRef.current;
@@ -1952,38 +2167,97 @@ function Interview() {
 
             videoElement.srcObject = stream;
 
-            videoElement.onloadedmetadata = () => {
-                videoElement.play();
-                
-                let lastVideoTime = -1;
-                let isProcessing = false; // 중복 처리 방지용 락(Lock)
+            await new Promise((resolve, reject) => {
+                videoElement.onloadedmetadata = async () => {
+                    try {
+                        await videoElement.play();
 
-                const processFrame = async () => {
-                    // 비디오가 멈췄거나 종료되었으면 루프 무시
-                    if (!videoElement.paused && !videoElement.ended && videoElement.readyState >= 2) {
-                        // 프레임 시간이 갱신되었고, 이전 처리가 끝났을 때만 send 호출
-                        if (videoElement.currentTime !== lastVideoTime && !isProcessing) {
-                            isProcessing = true;
-                            lastVideoTime = videoElement.currentTime;
-                            try {
-                                await selfieSegmentation.send({ image: videoElement });
-                            } catch (e) {
-                                console.error("프레임 전송 오류:", e);
-                            } finally {
-                                isProcessing = false;
+                        let lastVideoTime = -1;
+                        let isProcessing = false;
+
+                        const processFrame = async () => {
+                            if (
+                                !videoElement.paused &&
+                                !videoElement.ended &&
+                                videoElement.readyState >= 2
+                            ) {
+                                if (
+                                    videoElement.currentTime !== lastVideoTime &&
+                                    !isProcessing
+                                ) {
+                                    isProcessing = true;
+                                    lastVideoTime = videoElement.currentTime;
+
+                                    try {
+                                        await selfieSegmentation.send({
+                                            image: videoElement,
+                                        });
+                                    } catch (error) {
+                                        console.error(
+                                            '프레임 전송 오류:',
+                                            error,
+                                        );
+                                    } finally {
+                                        isProcessing = false;
+                                    }
+                                }
                             }
-                        }
+
+                            renderLoopRef.current =
+                                requestAnimationFrame(processFrame);
+                        };
+
+                        renderLoopRef.current =
+                            requestAnimationFrame(processFrame);
+
+                        setIsCameraActive(true);
+                        resolve();
+                    } catch (error) {
+                        reject(error);
                     }
-                    renderLoopRef.current = requestAnimationFrame(processFrame);
                 };
-                
-                renderLoopRef.current = requestAnimationFrame(processFrame);
-                setIsCameraActive(true);
-            };
+
+                videoElement.onerror = () => {
+                    reject(
+                        new Error('카메라 영상을 불러오지 못했습니다.'),
+                    );
+                };
+            });
+
+            return true;
 
         } catch (error) {
             console.error('웹캠 연결 및 AI 초기화 오류:', error);
+
+            stopUserCamera();
             setIsCameraActive(false);
+
+            if (
+                error.name === 'NotFoundError' ||
+                error.name === 'DevicesNotFoundError'
+            ) {
+                setHasCameraDevice(false);
+
+                addMessage(
+                    'system',
+                    '사용 가능한 카메라를 찾지 못했습니다.',
+                );
+            } else if (
+                error.name === 'NotAllowedError' ||
+                error.name === 'PermissionDeniedError'
+            ) {
+                addMessage(
+                    'system',
+                    '카메라 권한이 거부되어 카메라 없이 진행합니다.',
+                );
+            } else {
+                addMessage(
+                    'system',
+                    '카메라를 시작하지 못해 카메라 없이 진행합니다.',
+                );
+            }
+
+            return false;
         }
     };
 
@@ -2007,13 +2281,72 @@ function Interview() {
         setIsCameraActive(false);
     };
 
-    const toggleUserCamera = () => {
+    const toggleUserCamera = async () => {
         if (isCameraActive) {
             stopUserCamera();
+            setCameraUsageEnabled(false);
             return;
         }
-        startUserCamera();
+
+        if (hasCameraDevice === false) {
+            addMessage(
+                'system',
+                '사용 가능한 카메라가 없습니다.',
+            );
+            return;
+        }
+
+        const cameraStarted = await startUserCamera();
+
+        if (cameraStarted) {
+            setCameraUsageEnabled(true);
+        }
     };
+
+    const handleUseCamera = async () => {
+        if (hasCameraDevice === false) {
+            return;
+        }
+
+        const cameraStarted = await startUserCamera();
+
+        if (!cameraStarted) {
+            setCameraUsageEnabled(false);
+            setHasCameraDevice(false);
+            setIsCameraChoiceModalOpen(false);
+
+            addMessage(
+                'system',
+                '사용 가능한 카메라를 찾지 못해 카메라 없이 면접을 진행합니다.',
+            );
+
+            return;
+        }
+
+        setCameraUsageEnabled(true);
+        setIsCameraChoiceModalOpen(false);
+
+        addMessage(
+            'system',
+            '카메라를 사용합니다. 면접 중 시선 분석이 진행됩니다.',
+        );
+    };
+
+    const handleSkipCamera = () => {
+        stopUserCamera();
+
+        setCameraUsageEnabled(false);
+        setIsCameraChoiceModalOpen(false);
+
+        addMessage(
+            'system',
+            '카메라를 사용하지 않고 면접을 진행합니다.',
+        );
+    };
+
+    useEffect(() => {
+        checkCameraDevice();
+    }, []);
 
     // 🚀 수정: 서버로 프레임 보낼 때 현재 질문 중인 면접관에 맞춰 기준값을 교체하여 전송
     useEffect(() => {
@@ -2022,7 +2355,7 @@ function Interview() {
             interval = setInterval(() => {
                 if (canvasRef.current) {
                     const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.6);
-                    
+
                     // 현재 질문 중인 면접관에 따라 사용할 기준값 선택
                     const activeNose = currentInterviewer === 'tech' ? baselines.techNose : baselines.hrNose;
                     const activeIris = currentInterviewer === 'tech' ? baselines.techIris : baselines.hrIris;
@@ -2034,7 +2367,7 @@ function Interview() {
                             current_target: currentInterviewer, // 현재 쳐다봐야 할 면접관 (서버 참고용)
                             baseline_nose: activeNose,          // 동적으로 바뀌는 실제 검사 기준값
                             baseline_iris: activeIris,
-                            
+
                             // (혹시 모를 서버 로그 기록이나 하위 호환성을 위한 개별 데이터 유지)
                             baseline_nose_hr: baselines.hrNose,
                             baseline_iris_hr: baselines.hrIris,
@@ -2043,13 +2376,12 @@ function Interview() {
                         })
                     );
                 }
-            }, 1000); 
+            }, 1000);
         }
 
         // 의존성 배열에 currentInterviewer를 추가하여, 면접관이 바뀔 때마다 interval이 새로 갱신되도록 합니다.
         return () => clearInterval(interval);
     }, [step, isCameraActive, baselines, currentInterviewer]);
-
 
     useEffect(() => {
         return () => {
@@ -2087,6 +2419,10 @@ function Interview() {
             );
 
             return;
+        }
+
+        if (interviewModeRef.current === 'developer') {
+            developerInterviewEndingRef.current = true;
         }
 
         websocket.send(
@@ -2374,7 +2710,7 @@ function Interview() {
                     </button>
                 );
             }
-            
+
             if (calibrationPhase === 'hr_calibrating') {
                 return (
                     <button
@@ -2792,40 +3128,195 @@ function Interview() {
 
     return (
         <main className="interview-page">
-            <div className="temporary-mode-toggle">
-                <span>임시 답변 모드</span>
+            {isCameraChoiceModalOpen && (
+                <div className="camera-choice-overlay">
+                    <div
+                        className="camera-choice-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="camera-choice-title"
+                    >
+                        <div className="camera-choice-icon">
+                            📷
+                        </div>
 
-                <button
-                    type="button"
-                    className={answerMode === 'voice' ? 'active' : ''}
-                    onClick={() => setAnswerMode('voice')}
-                    disabled={isRecordingAnswer}
-                >
-                    음성
-                </button>
+                        <h2 id="camera-choice-title">
+                            카메라를 사용하시겠습니까?
+                        </h2>
 
-                <button
-                    type="button"
-                    className={answerMode === 'text' ? 'active' : ''}
-                    onClick={() => setAnswerMode('text')}
-                    disabled={isRecordingAnswer}
-                >
-                    텍스트
-                </button>
+                        {hasCameraDevice === null && (
+                            <p>
+                                연결된 카메라를 확인하고 있습니다.
+                            </p>
+                        )}
+
+                        {hasCameraDevice === true && (
+                            <p>
+                                카메라를 사용하면 면접 중 시선 방향을
+                                분석할 수 있습니다. 카메라를 사용하지
+                                않아도 면접은 진행할 수 있습니다.
+                            </p>
+                        )}
+
+                        {hasCameraDevice === false && (
+                            <p>
+                                사용할 수 있는 카메라를 찾지 못했습니다.
+                                카메라 없이 면접을 진행합니다.
+                            </p>
+                        )}
+
+                        <div className="camera-choice-buttons">
+                            {hasCameraDevice === true && (
+                                <button
+                                    type="button"
+                                    className="camera-choice-use-button"
+                                    onClick={handleUseCamera}
+                                >
+                                    카메라 사용
+                                </button>
+                            )}
+
+                            <button
+                                type="button"
+                                className="camera-choice-skip-button"
+                                onClick={handleSkipCamera}
+                                disabled={hasCameraDevice === null}
+                            >
+                                {hasCameraDevice === false
+                                    ? '카메라 없이 진행'
+                                    : '사용하지 않음'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="temporary-mode-panel">
+                <div className="temporary-mode-row">
+                    <span>답변 모드</span>
+
+                    <div className="temporary-mode-buttons">
+                        <button
+                            type="button"
+                            className={answerMode === 'voice' ? 'active' : ''}
+                            onClick={() => setAnswerMode('voice')}
+                            disabled={isRecordingAnswer}
+                        >
+                            음성
+                        </button>
+
+                        <button
+                            type="button"
+                            className={answerMode === 'text' ? 'active' : ''}
+                            onClick={() => setAnswerMode('text')}
+                            disabled={isRecordingAnswer}
+                        >
+                            텍스트
+                        </button>
+                    </div>
+                </div>
+
+                <div className="temporary-mode-row">
+                    <span>진행 모드</span>
+
+                    <div className="temporary-mode-buttons">
+                        <button
+                            type="button"
+                            className={interviewMode === 'developer' ? 'active' : ''}
+                            onClick={() => changeInterviewMode('developer')}
+                            disabled={
+                                isRecordingAnswer ||
+                                isStartingAnswerRecording ||
+                                isProcessingAnswer
+                            }
+                        >
+                            개발자
+                        </button>
+
+                        <button
+                            type="button"
+                            className={interviewMode === 'user' ? 'active' : ''}
+                            onClick={() => changeInterviewMode('user')}
+                            disabled={
+                                isRecordingAnswer ||
+                                isStartingAnswerRecording ||
+                                isProcessingAnswer
+                            }
+                        >
+                            사용자
+                        </button>
+                    </div>
+                </div>
             </div>
 
             <section className="interview-left">
                 <div className="interviewer-video-layer">
-                    <video
-                        ref={interviewerDefaultVideoRef}
-                        className="interviewer-avatar-video interviewer-default-video"
-                        src={DEFAULT_INTERVIEWER_VIDEO_URL}
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        preload="auto"
-                    />
+                    {interviewerDefaultVideos.map((videoUrl, index) => (
+                        <video
+                            key={index}
+                            ref={interviewerDefaultVideoRefs[index]}
+                            className={`interviewer-avatar-video interviewer-default-video ${activeDefaultVideoIndex === index
+                                ? 'visible'
+                                : ''
+                                }`}
+                            src={videoUrl || undefined}
+                            autoPlay={index === 0}
+                            muted
+                            playsInline
+                            preload="auto"
+                            onTimeUpdate={(event) => {
+                                if (activeDefaultVideoIndex !== index) {
+                                    return;
+                                }
+
+                                const video = event.currentTarget;
+
+                                if (
+                                    Number.isFinite(video.duration) &&
+                                    video.duration > 0 &&
+                                    video.duration - video.currentTime <= 0.5
+                                ) {
+                                    playNextDefaultInterviewerVideo();
+                                }
+                            }}
+                            onEnded={(event) => {
+                                if (
+                                    activeDefaultVideoIndex === index &&
+                                    !isDefaultVideoTransitioningRef.current
+                                ) {
+                                    event.currentTarget.currentTime = 0;
+                                    event.currentTarget.play().catch(() => { });
+                                }
+                            }}
+                            onError={(event) => {
+                                const video = event.currentTarget;
+
+                                console.error(
+                                    '[interview] 기본 면접관 영상 재생 오류:',
+                                    {
+                                        src: video.currentSrc,
+                                        errorCode: video.error?.code,
+                                        errorMessage: video.error?.message,
+                                    },
+                                );
+                            }}
+                        />
+                    ))}
+
+                    {step === 'calibrate_vision' && (
+                        <div
+                            className={`calibration-target-box ${calibrationPhase.startsWith('hr')
+                                ? 'calibration-target-hr'
+                                : 'calibration-target-tech'
+                                }`}
+                        >
+                            <span>
+                                {calibrationPhase.startsWith('hr')
+                                    ? '인사 면접관의 눈을 바라보세요'
+                                    : '기술 면접관의 눈을 바라보세요'}
+                            </span>
+                        </div>
+                    )}
 
                     <video
                         ref={interviewerStreamVideoRef}
@@ -3079,21 +3570,32 @@ function Interview() {
 
                     <button
                         type="button"
-                        className={`camera-toggle-button ${isCameraActive ? 'camera-on' : 'camera-off'
+                        className={`camera-toggle-button ${isCameraActive
+                            ? 'camera-on'
+                            : 'camera-off'
                             }`}
                         onClick={toggleUserCamera}
+                        disabled={hasCameraDevice === false}
                         aria-label={
-                            isCameraActive
-                                ? '내 카메라 끄기'
-                                : '내 카메라 켜기'
+                            hasCameraDevice === false
+                                ? '사용 가능한 카메라 없음'
+                                : isCameraActive
+                                    ? '내 카메라 끄기'
+                                    : '내 카메라 켜기'
                         }
                         title={
-                            isCameraActive
-                                ? '내 카메라 끄기'
-                                : '내 카메라 켜기'
+                            hasCameraDevice === false
+                                ? '사용 가능한 카메라가 없습니다.'
+                                : isCameraActive
+                                    ? '내 카메라 끄기'
+                                    : '내 카메라 켜기'
                         }
                     >
-                        {isCameraActive ? '🚫' : '📹'}
+                        {hasCameraDevice === false
+                            ? '❌'
+                            : isCameraActive
+                                ? '🚫'
+                                : '📹'}
                     </button>
                 </section>
 

@@ -18,6 +18,77 @@
     background-position: left center;
 }
 
+/* 시선 영점 조절 대상 표시 */
+.calibration-target-box {
+    position: absolute;
+    z-index: 20;
+
+    width: 180px;
+    height: 200px;
+
+    box-sizing: border-box;
+    border: 4px solid #ff2d2d;
+    border-radius: 10px;
+
+    pointer-events: none;
+
+    box-shadow:
+        0 0 0 3px rgba(255, 45, 45, 0.18),
+        0 0 20px rgba(255, 45, 45, 0.7);
+
+    animation: calibrationTargetPulse 1s ease-in-out infinite;
+}
+
+/* 인사 면접관 위치 */
+.calibration-target-hr {
+    top: 21%;
+    left: 29%;
+    transform: translateX(-290px);
+}
+
+/* 기술 면접관 위치 */
+.calibration-target-tech {
+    top: 23%;
+    left: 59%;
+    transform: translateX(110px);
+}
+
+.calibration-target-box span {
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 10px);
+
+    width: max-content;
+    max-width: 230px;
+    padding: 7px 11px;
+
+    border-radius: 8px;
+
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+    white-space: nowrap;
+
+    background: rgba(215, 35, 52, 0.92);
+
+    transform: translateX(-50%);
+}
+
+@keyframes calibrationTargetPulse {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.65;
+        transform: scale(1.04);
+    }
+}
+
 /* 지원자 답변 영상 */
 .candidate-eye-transition {
     position: absolute;
@@ -85,6 +156,39 @@
     height: 100%;
     object-fit: cover;
     object-position: center;
+}
+
+.interviewer-default-video {
+    z-index: 1;
+    opacity: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+
+    background-image: url('/assets/interviewer-avatar-bg.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+
+.interviewer-default-video.visible {
+    opacity: 1;
+}
+
+.interviewer-stream-video {
+    z-index: 2;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s linear;
+    background: transparent;
+    will-change: opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+.interviewer-stream-video.visible {
+    opacity: 1;
 }
 
 /* 답변 중인 지원자 영상 */
@@ -422,6 +526,114 @@
 }
 
 /* --- 수정된 사용자 웹캠 영역 (MediaPipe 캔버스 지원) --- */
+/* 카메라 사용 여부 선택 모달 */
+.camera-choice-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 24px;
+    box-sizing: border-box;
+
+    background: rgba(4, 6, 12, 0.78);
+    backdrop-filter: blur(8px);
+}
+
+.camera-choice-modal {
+    width: min(440px, 100%);
+    padding: 34px 32px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 22px;
+
+    color: #ffffff;
+    text-align: center;
+
+    background: #1b1f2a;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.camera-choice-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 66px;
+    height: 66px;
+    margin: 0 auto 20px;
+
+    border-radius: 50%;
+    font-size: 30px;
+
+    background: rgba(116, 87, 245, 0.16);
+}
+
+.camera-choice-modal h2 {
+    margin: 0 0 14px;
+    font-size: 22px;
+}
+
+.camera-choice-modal p {
+    margin: 0;
+    color: #aeb5c5;
+    font-size: 14px;
+    line-height: 1.7;
+    word-break: keep-all;
+}
+
+.camera-choice-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+}
+
+.camera-choice-buttons button {
+    flex: 1;
+    min-height: 50px;
+
+    border-radius: 13px;
+
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.camera-choice-use-button {
+    border: 0;
+    background: linear-gradient(135deg, #7457f5, #5838cf);
+}
+
+.camera-choice-skip-button {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #292e3a;
+}
+
+.camera-choice-buttons button:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.camera-choice-buttons button:disabled {
+    cursor: wait;
+    opacity: 0.5;
+}
+
+.camera-toggle-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.camera-toggle-button:disabled:hover {
+    transform: none;
+}
+
 .user-camera-area {
     flex: 0 0 240px;
     width: 100%;
@@ -440,13 +652,15 @@
     object-fit: cover;
     transform: scaleX(-1);
     /* 좌우 반전(거울 모드) */
-    opacity: 0; /* 카메라가 꺼져있을 때 투명하게 설정 */
+    opacity: 0;
+    /* 카메라가 꺼져있을 때 투명하게 설정 */
     transition: opacity 0.3s ease;
     background-color: #0a0d15;
 }
 
 .user-video.active {
-    opacity: 1; /* 카메라가 활성화되면 부드럽게 나타남 */
+    opacity: 1;
+    /* 카메라가 활성화되면 부드럽게 나타남 */
 }
 
 .camera-placeholder {
@@ -504,6 +718,7 @@
 .camera-toggle-button.camera-off {
     background: rgba(215, 55, 73, 0.88);
 }
+
 /* ------------------------ */
 
 .chat-area {
@@ -976,29 +1191,43 @@
     background: rgba(85, 118, 255, 0.65);
 }
 
-/* 개발 중 사용하는 임시 답변 모드 전환 버튼 */
-.temporary-mode-toggle {
+/* 개발 중 사용하는 답변/진행 모드 전환 패널 */
+.temporary-mode-panel {
     position: fixed;
     top: 18px;
     right: 438px;
     z-index: 100;
     display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 7px 8px;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 230px;
+    padding: 9px;
     border: 1px solid rgba(255, 255, 255, 0.18);
-    border-radius: 12px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
+    border-radius: 14px;
     background: rgba(10, 13, 21, 0.82);
     backdrop-filter: blur(10px);
 }
 
-.temporary-mode-toggle span {
-    margin: 0 5px 0 3px;
+.temporary-mode-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
 }
 
-.temporary-mode-toggle button {
+.temporary-mode-row>span {
+    flex: 0 0 58px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 12px;
+}
+
+.temporary-mode-buttons {
+    display: flex;
+    gap: 6px;
+}
+
+.temporary-mode-buttons button {
+    min-width: 62px;
     padding: 7px 11px;
     border: 1px solid rgba(255, 255, 255, 0.16);
     border-radius: 8px;
@@ -1010,13 +1239,13 @@
     cursor: pointer;
 }
 
-.temporary-mode-toggle button.active {
+.temporary-mode-buttons button.active {
     border-color: #8067ef;
     color: #ffffff;
     background: #6246d9;
 }
 
-.temporary-mode-toggle button:disabled {
+.temporary-mode-buttons button:disabled {
     cursor: not-allowed;
     opacity: 0.45;
 }
