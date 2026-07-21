@@ -455,6 +455,114 @@
 }
 
 /* --- 수정된 사용자 웹캠 영역 (MediaPipe 캔버스 지원) --- */
+/* 카메라 사용 여부 선택 모달 */
+.camera-choice-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 24px;
+    box-sizing: border-box;
+
+    background: rgba(4, 6, 12, 0.78);
+    backdrop-filter: blur(8px);
+}
+
+.camera-choice-modal {
+    width: min(440px, 100%);
+    padding: 34px 32px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 22px;
+
+    color: #ffffff;
+    text-align: center;
+
+    background: #1b1f2a;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.45);
+}
+
+.camera-choice-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 66px;
+    height: 66px;
+    margin: 0 auto 20px;
+
+    border-radius: 50%;
+    font-size: 30px;
+
+    background: rgba(116, 87, 245, 0.16);
+}
+
+.camera-choice-modal h2 {
+    margin: 0 0 14px;
+    font-size: 22px;
+}
+
+.camera-choice-modal p {
+    margin: 0;
+    color: #aeb5c5;
+    font-size: 14px;
+    line-height: 1.7;
+    word-break: keep-all;
+}
+
+.camera-choice-buttons {
+    display: flex;
+    gap: 12px;
+    margin-top: 28px;
+}
+
+.camera-choice-buttons button {
+    flex: 1;
+    min-height: 50px;
+
+    border-radius: 13px;
+
+    color: #ffffff;
+    font-family: inherit;
+    font-size: 15px;
+    font-weight: 700;
+
+    cursor: pointer;
+}
+
+.camera-choice-use-button {
+    border: 0;
+    background: linear-gradient(135deg, #7457f5, #5838cf);
+}
+
+.camera-choice-skip-button {
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    background: #292e3a;
+}
+
+.camera-choice-buttons button:hover:not(:disabled) {
+    transform: translateY(-1px);
+}
+
+.camera-choice-buttons button:disabled {
+    cursor: wait;
+    opacity: 0.5;
+}
+
+.camera-toggle-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+}
+
+.camera-toggle-button:disabled:hover {
+    transform: none;
+}
+
 .user-camera-area {
     flex: 0 0 240px;
     width: 100%;
