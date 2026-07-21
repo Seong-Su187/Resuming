@@ -1,8 +1,16 @@
 /* mypage.css */
 .mypage {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+
+    width: 100%;
+    height: 100vh;
     padding: 24px;
     margin: 0 auto;
-    justify-content: flex-start;
+
+    box-sizing: border-box;
+    overflow: hidden;
 }
 
 .mypage-header {
@@ -12,6 +20,8 @@
     gap: 24px;
 
     width: 100%;
+
+    flex-shrink: 0;
 }
 
 .mypage-header h1 {
@@ -19,6 +29,68 @@
 
     font-size: 38px;
     font-weight: 800;
+}
+
+.mypage-average-charts-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+
+    flex: 1;
+}
+
+.mypage-chart-limit-buttons {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    flex-shrink: 0;
+
+    padding: 4px;
+
+    border: 1px solid #dfe7e2;
+    border-radius: 12px;
+
+    background: #f5f8f6;
+}
+
+.mypage-chart-limit-button {
+    padding: 7px 13px;
+
+    border: 0;
+    border-radius: 9px;
+
+    background: transparent;
+    color: #68736d;
+
+    font-size: 13px;
+    font-weight: 700;
+
+    cursor: pointer;
+
+    transition:
+        background-color 0.2s ease,
+        color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.mypage-chart-limit-button:hover {
+    background: #e4ece7;
+    color: #315d47;
+}
+
+.mypage-chart-limit-button.active {
+    background: #3f7058;
+    color: #fff;
+    box-shadow: 0 3px 8px rgba(49, 93, 71, 0.2);
+}
+
+.mypage-chart-limit-button:disabled {
+    background: transparent;
+    color: #b4bcb7;
+    cursor: not-allowed;
+    box-shadow: none;
 }
 
 .mypage-main-button,
@@ -65,20 +137,21 @@
     grid-template-columns: 300px minmax(0, 1fr);
     gap: 28px;
 
+    flex: 1;
+
     width: 100%;
+    min-height: 0;
     margin: 0 auto;
+
+    overflow: hidden;
 }
 
 /* 왼쪽 면접 목록 */
 .mypage-session-list {
-    position: sticky;
-    top: 24px;
-
-    align-self: start;
-
-    max-height: calc(100vh - 48px);
+    min-height: 0;
     padding: 20px;
 
+    overflow-x: hidden;
     overflow-y: auto;
 
     border: 1px solid #dfe7e2;
@@ -165,7 +238,40 @@
 
 /* 오른쪽 결과 영역 */
 .mypage-result {
+    width: 100%;
+    height: 100%;
     min-width: 0;
+    min-height: 0;
+    padding-right: 16px;
+
+    box-sizing: border-box;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+/* Chrome, Edge, Safari */
+.mypage-session-list::-webkit-scrollbar,
+.mypage-result::-webkit-scrollbar {
+    width: 10px;
+}
+
+.mypage-session-list::-webkit-scrollbar-track,
+.mypage-result::-webkit-scrollbar-track {
+    margin-block: 20px;
+    background: rgba(220, 222, 224, 0.7);
+}
+
+.mypage-session-list::-webkit-scrollbar-thumb,
+.mypage-result::-webkit-scrollbar-thumb {
+    background: rgba(105, 110, 115, 0.75);
+    border-radius: 999px;
+    border: 2px solid rgba(220, 222, 224, 0.7);
+}
+
+.mypage-session-list::-webkit-scrollbar-thumb:hover,
+.mypage-result::-webkit-scrollbar-thumb:hover {
+    background: rgba(75, 80, 85, 0.9);
 }
 
 .mypage-session-result-header {
@@ -249,7 +355,7 @@
 /* 질문별 답변 카드 */
 .mypage-answer-list {
     display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 16px;
 
     width: 100%;
@@ -264,6 +370,7 @@
 
     background: #fff;
     box-shadow: 0 8px 24px rgba(31, 58, 44, 0.06);
+    box-sizing: border-box;
 }
 
 .mypage .answer-card-header {
@@ -397,8 +504,14 @@
 }
 
 .mypage-average-charts {
+    display: flex;
+    flex-direction: column;
+
+    flex: 1;
+    min-height: 100%;
     padding: 24px;
-    margin-bottom: 20px;
+
+    box-sizing: border-box;
 
     border: 1px solid #dfe7e2;
     border-radius: 20px;
@@ -431,7 +544,7 @@
     flex-wrap: wrap;
     gap: 12px 24px;
 
-    margin-bottom: 18px;
+    margin-bottom: 8px;
 }
 
 .chart-legend-item {
@@ -457,7 +570,10 @@
 /* 그래프 영역 */
 .mypage-combined-chart {
     width: 100%;
-    overflow-x: auto;
+    height: 380px;
+    min-width: 0;
+
+    overflow: hidden;
 
     border: 1px solid #e6ece8;
     border-radius: 16px;
@@ -469,8 +585,8 @@
     display: block;
 
     width: 100%;
-    min-width: 700px;
-    height: auto;
+    height: 100%;
+    min-width: 0;
 }
 
 .combined-chart-grid-line {
@@ -552,7 +668,6 @@
 .mypage-chart-value-card {
     display: flex;
     flex-direction: column;
-    gap: 5px;
 
     padding: 12px;
 
@@ -572,4 +687,130 @@
 .mypage-chart-value-card span {
     color: #657069;
     font-size: 12px;
+}
+
+/* 그래프/상세 결과 화면 전환 */
+.mypage-view-navigation {
+    display: grid;
+    grid-template-columns: 110px 1fr 110px;
+    align-items: center;
+    gap: 16px;
+
+    margin-bottom: 16px;
+}
+
+.mypage-view-navigation>span {
+    color: #315d47;
+    font-size: 17px;
+    font-weight: 800;
+    text-align: center;
+}
+
+.mypage-view-button {
+    padding: 10px 16px;
+
+    border: 1px solid #b9cbc1;
+    border-radius: 12px;
+
+    background: #fff;
+    color: #315d47;
+
+    font-size: 14px;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.mypage-view-button:hover:not(:disabled) {
+    background: #edf4f0;
+}
+
+.mypage-view-button:disabled {
+    border-color: #e1e7e3;
+    background: #f4f6f5;
+    color: #a6afa9;
+    cursor: not-allowed;
+}
+
+/* 왼쪽 꺾은선 + 오른쪽 막대그래프 */
+.mypage-chart-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.9fr);
+    gap: 18px;
+}
+
+.mypage-chart-panel {
+    min-width: 0;
+    padding: 16px;
+
+    border: 1px solid #e3e9e6;
+    border-radius: 16px;
+
+    background: #fbfcfb;
+}
+
+.mypage-chart-panel-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 12px;
+
+    margin-bottom: 12px;
+}
+
+.mypage-chart-panel-header h3 {
+    margin: 0;
+
+    color: #202723;
+    font-size: 17px;
+    font-weight: 800;
+}
+
+.mypage-chart-panel-header span {
+    color: #849089;
+    font-size: 12px;
+    text-align: right;
+}
+
+.mypage-chart-panel .mypage-chart-legend {
+    min-height: 24px;
+    margin-bottom: 10px;
+}
+
+.chart-legend-box {
+    display: block;
+
+    width: 15px;
+    height: 15px;
+
+    border-radius: 4px;
+    background: currentColor;
+}
+
+.chart-legend-item.filler,
+.combined-chart-bar.filler {
+    color: #d95b65;
+    fill: #d95b65;
+}
+
+.chart-legend-item.gaze-loss,
+.combined-chart-bar.gaze-loss {
+    color: #4f79a7;
+    fill: #4f79a7;
+}
+
+.mypage-chart-panel .mypage-combined-chart-svg,
+.mypage-chart-panel .mypage-bar-chart-svg {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+}
+
+.combined-chart-bar {
+    transition: opacity 0.2s ease;
+}
+
+.combined-chart-bar:hover {
+    opacity: 0.78;
 }
