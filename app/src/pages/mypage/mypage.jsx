@@ -5,7 +5,7 @@ import API_BASE_URL from '../../config/apiConfig';
 import '../../index.css';
 import './mypage.css';
 
-const CHART_SERIES = [
+const LINE_CHART_SERIES = [
     {
         key: 'averageScore',
         label: '평균 점수',
@@ -34,13 +34,15 @@ const CHART_SERIES = [
         fixed: 0,
         className: 'wpm',
     },
+];
+
+const BAR_CHART_SERIES = [
     {
         key: 'averageFiller',
         label: '평균 습관어',
         unit: '회',
         fixed: 1,
         className: 'filler',
-        color: '#FF1744', // 🔴 눈에 확 띄는 강렬한 레드
     },
     {
         key: 'averageGazeLoss',
@@ -48,7 +50,6 @@ const CHART_SERIES = [
         unit: '회',
         fixed: 1,
         className: 'gaze-loss',
-        color: '#00BFFF', // 🔵 눈에 확 띄는 밝은 스카이블루
     },
 ];
 
@@ -58,33 +59,29 @@ function InterviewAverageChart({
     onSessionLimitChange,
     totalSessionCount,
 }) {
-    const width = 1000;
+    const lineWidth = 720;
+    const barWidth = 520;
     const height = 360;
-
     const padding = {
-        top: 40,
-        right: 40,
+        top: 36,
+        right: 28,
         bottom: 55,
-        left: 55,
+        left: 52,
     };
 
-    const chartWidth = width - padding.left - padding.right;
+    const lineChartWidth = lineWidth - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
-    const getX = (index) => {
+    const getLineX = (index) => {
         if (data.length === 1) {
-            return padding.left + chartWidth / 2;
+            return padding.left + lineChartWidth / 2;
         }
 
         return padding.left
-            + (index / (data.length - 1)) * chartWidth;
+            + (index / Math.max(data.length - 1, 1)) * lineChartWidth;
     };
 
-    /*
-     * 지표별 최솟값과 최댓값을 사용해 0~100으로 정규화합니다.
-     * 실제 평균값은 point.rawValue에 그대로 보관합니다.
-     */
-    const normalizedSeries = CHART_SERIES.map((series) => {
+    const normalizedLineSeries = LINE_CHART_SERIES.map((series) => {
         const validValues = data
             .map((item) => item[series.key])
             .filter((value) => Number.isFinite(value));
@@ -100,44 +97,50 @@ function InterviewAverageChart({
         const maxValue = Math.max(...validValues);
         const range = maxValue - minValue;
 
-        const points = data
-            .map((item, index) => {
-                const rawValue = item[series.key];
-
-                if (!Number.isFinite(rawValue)) {
-                    return null;
-                }
-
-                /*
-                 * 모든 값이 같으면 그래프 중앙에 표시합니다.
-                 */
-                const normalizedValue = range === 0
-                    ? 50
-                    : ((rawValue - minValue) / range) * 100;
-
-                const x = getX(index);
-                const y = padding.top
-                    + chartHeight
-                    - (normalizedValue / 100) * chartHeight;
-
-                return {
-                    sessionId: item.sessionId,
-                    label: item.label,
-                    rawValue,
-                    normalizedValue,
-                    x,
-                    y,
-                };
-            })
-            .filter(Boolean);
-
         return {
             ...series,
-            points,
+            points: data
+                .map((item, index) => {
+                    const rawValue = item[series.key];
+
+                    if (!Number.isFinite(rawValue)) {
+                        return null;
+                    }
+
+                    const normalizedValue = range === 0
+                        ? 50
+                        : ((rawValue - minValue) / range) * 100;
+
+                    return {
+                        sessionId: item.sessionId,
+                        label: item.label,
+                        rawValue,
+                        x: getLineX(index),
+                        y: padding.top
+                            + chartHeight
+                            - (normalizedValue / 100) * chartHeight,
+                    };
+                })
+                .filter(Boolean),
         };
     });
 
-    const gridValues = [100, 75, 50, 25, 0];
+    const barValues = data.flatMap((item) => (
+        BAR_CHART_SERIES.map((series) => item[series.key])
+    )).filter((value) => Number.isFinite(value));
+
+    const rawBarMax = barValues.length > 0 ? Math.max(...barValues) : 0;
+    const barAxisMax = Math.max(1, Math.ceil(rawBarMax));
+    const barChartWidth = barWidth - padding.left - padding.right;
+    const groupWidth = barChartWidth / Math.max(data.length, 1);
+    const barGap = 6;
+    const barWidthValue = Math.min(
+        30,
+        Math.max(12, (groupWidth - 20 - barGap) / 2),
+    );
+
+    const lineGridValues = [100, 75, 50, 25, 0];
+    const barGridValues = [barAxisMax, barAxisMax * 0.75, barAxisMax * 0.5, barAxisMax * 0.25, 0];
 
     return (
         <section className="mypage-average-charts">
@@ -145,10 +148,8 @@ function InterviewAverageChart({
                 <div className="mypage-average-charts-heading">
                     <div className="mypage-average-charts-title">
                         <h2>면접별 평균 변화</h2>
-
                         <p>
-                            ( 최근 {Math.min(sessionLimit, totalSessionCount)}건 ·
-                            지표별 변화 추세를 0~100 범위로 정규화 )
+                            최근 {Math.min(sessionLimit, totalSessionCount)}건
                         </p>
                     </div>
 
@@ -157,202 +158,259 @@ function InterviewAverageChart({
                         role="group"
                         aria-label="그래프에 표시할 면접 개수"
                     >
-                        {[3, 5, 7].map((limit) => (
-                            <button
-                                key={limit}
-                                type="button"
-                                className={
-                                    sessionLimit === limit
-                                        ? 'mypage-chart-limit-button active'
-                                        : 'mypage-chart-limit-button'
-                                }
-                                onClick={() => onSessionLimitChange(limit)}
-                            >
-                                {limit}건
-                            </button>
-                        ))}
+                        {[3, 5, 7, 9, 12, 14, 16, 18].map((limit, index, limits) => {
+                            const previousLimit = index === 0 ? 0 : limits[index - 1];
+
+                            const isDisabled =
+                                totalSessionCount <= previousLimit;
+
+                            return (
+                                <button
+                                    key={limit}
+                                    type="button"
+                                    className={
+                                        sessionLimit === limit
+                                            ? 'mypage-chart-limit-button active'
+                                            : 'mypage-chart-limit-button'
+                                    }
+                                    onClick={() => onSessionLimitChange(limit)}
+                                    disabled={isDisabled}
+                                >
+                                    {limit}건
+                                </button>
+                            );
+                        })}
                     </div>
                 </div>
             </div>
 
-            <div className="mypage-chart-legend">
-                {CHART_SERIES.map((series) => (
-                    <div
-                        key={series.key}
-                        className={`chart-legend-item ${series.className}`}
-                    >
-                        <span
-                            className="chart-legend-line"
-                            style={series.color ? { backgroundColor: series.color } : {}}
-                        />
-                        <strong>{series.label}</strong>
+            <div className="mypage-chart-grid">
+                <div className="mypage-chart-panel">
+                    <div className="mypage-chart-panel-header">
+                        <h3>평균 평가 지표</h3>
+                        <span>지표별 변화 추세를 0~100으로 정규화</span>
                     </div>
-                ))}
-            </div>
 
-            <div className="mypage-combined-chart">
-                <svg
-                    className="mypage-combined-chart-svg"
-                    viewBox={`0 0 ${width} ${height}`}
-                    role="img"
-                    aria-label="면접별 평균 지표 변화 그래프"
-                >
-                    {gridValues.map((gridValue) => {
-                        const y = padding.top
-                            + chartHeight
-                            - (gridValue / 100) * chartHeight;
-
-                        return (
-                            <g key={gridValue}>
-                                <line
-                                    className="combined-chart-grid-line"
-                                    x1={padding.left}
-                                    y1={y}
-                                    x2={width - padding.right}
-                                    y2={y}
-                                />
-
-                                <text
-                                    className="combined-chart-axis-label"
-                                    x={padding.left - 12}
-                                    y={y + 4}
-                                    textAnchor="end"
-                                >
-                                    {gridValue}
-                                </text>
-                            </g>
-                        );
-                    })}
-
-                    {data.map((item, index) => {
-                        const x = getX(index);
-
-                        return (
-                            <g key={item.sessionId}>
-                                <line
-                                    className="combined-chart-vertical-line"
-                                    x1={x}
-                                    y1={padding.top}
-                                    x2={x}
-                                    y2={padding.top + chartHeight}
-                                />
-
-                                <text
-                                    className="combined-chart-session-label"
-                                    x={x}
-                                    y={height - 18}
-                                    textAnchor="middle"
-                                >
-                                    {item.label}
-                                </text>
-                            </g>
-                        );
-                    })}
-
-                    {normalizedSeries.map((series) => {
-                        const polylinePoints = series.points
-                            .map((point) => `${point.x},${point.y}`)
-                            .join(' ');
-
-                        return (
-                            <g
+                    <div className="mypage-chart-legend">
+                        {LINE_CHART_SERIES.map((series) => (
+                            <div
                                 key={series.key}
-                                className={`combined-chart-series ${series.className}`}
+                                className={`chart-legend-item ${series.className}`}
                             >
-                                {series.points.length > 1 && (
-                                    <polyline
-                                        className="combined-chart-line"
-                                        points={polylinePoints}
-                                        style={series.color ? { stroke: series.color } : {}}
-                                    />
-                                )}
+                                <span className="chart-legend-line" />
+                                <strong>{series.label}</strong>
+                            </div>
+                        ))}
+                    </div>
 
-                                {series.points.map((point) => (
-                                    <g
-                                        key={
-                                            `${series.key}-${point.sessionId}`
-                                        }
-                                    >
+                    <div className="mypage-combined-chart">
+                        <svg
+                            className="mypage-combined-chart-svg"
+                            viewBox={`0 0 ${lineWidth} ${height}`}
+                            preserveAspectRatio="none"
+                            role="img"
+                            aria-label="평균 점수, 목소리, 음량, 속도 꺾은선 그래프"
+                        >
+                            {lineGridValues.map((gridValue) => {
+                                const y = padding.top
+                                    + chartHeight
+                                    - (gridValue / 100) * chartHeight;
+
+                                return (
+                                    <g key={gridValue}>
+                                        <line
+                                            className="combined-chart-grid-line"
+                                            x1={padding.left}
+                                            y1={y}
+                                            x2={lineWidth - padding.right}
+                                            y2={y}
+                                        />
+                                        <text
+                                            className="combined-chart-axis-label"
+                                            x={padding.left - 10}
+                                            y={y + 4}
+                                            textAnchor="end"
+                                        >
+                                            {gridValue}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+
+                            {data.map((item, index) => {
+                                const x = getLineX(index);
+
+                                return (
+                                    <g key={item.sessionId}>
+                                        <line
+                                            className="combined-chart-vertical-line"
+                                            x1={x}
+                                            y1={padding.top}
+                                            x2={x}
+                                            y2={padding.top + chartHeight}
+                                        />
+                                        <text
+                                            className="combined-chart-session-label"
+                                            x={x}
+                                            y={height - 18}
+                                            textAnchor="middle"
+                                        >
+                                            {item.label}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+
+                            {normalizedLineSeries.map((series) => (
+                                <g
+                                    key={series.key}
+                                    className={`combined-chart-series ${series.className}`}
+                                >
+                                    {series.points.length > 1 && (
+                                        <polyline
+                                            className="combined-chart-line"
+                                            points={series.points
+                                                .map((point) => `${point.x},${point.y}`)
+                                                .join(' ')}
+                                        />
+                                    )}
+
+                                    {series.points.map((point) => (
                                         <circle
+                                            key={`${series.key}-${point.sessionId}`}
                                             className="combined-chart-point"
                                             cx={point.x}
                                             cy={point.y}
                                             r="5"
-                                            style={series.color ? { stroke: series.color } : {}}
                                         >
                                             <title>
-                                                {`${point.label} · `}
-                                                {series.label}
-                                                {': '}
-                                                {point.rawValue.toFixed(
-                                                    series.fixed,
-                                                )}
-                                                {series.unit}
+                                                {`${point.label} · ${series.label}: ${point.rawValue.toFixed(series.fixed)}${series.unit}`}
                                             </title>
                                         </circle>
+                                    ))}
+                                </g>
+                            ))}
+                        </svg>
+                    </div>
+                </div>
+
+                <div className="mypage-chart-panel">
+                    <div className="mypage-chart-panel-header">
+                        <h3>평균 행동 지표</h3>
+                        <span>면접별 실제 평균 횟수</span>
+                    </div>
+
+                    <div className="mypage-chart-legend">
+                        {BAR_CHART_SERIES.map((series) => (
+                            <div
+                                key={series.key}
+                                className={`chart-legend-item ${series.className}`}
+                            >
+                                <span className="chart-legend-box" />
+                                <strong>{series.label}</strong>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mypage-combined-chart">
+                        <svg
+                            className="mypage-combined-chart-svg mypage-bar-chart-svg"
+                            viewBox={`0 0 ${barWidth} ${height}`}
+                            preserveAspectRatio="none"
+                            role="img"
+                            aria-label="평균 습관어와 평균 시선이탈 막대그래프"
+                        >
+                            {barGridValues.map((gridValue, index) => {
+                                const ratio = gridValue / barAxisMax;
+                                const y = padding.top + chartHeight - ratio * chartHeight;
+
+                                return (
+                                    <g key={`${gridValue}-${index}`}>
+                                        <line
+                                            className="combined-chart-grid-line"
+                                            x1={padding.left}
+                                            y1={y}
+                                            x2={barWidth - padding.right}
+                                            y2={y}
+                                        />
+                                        <text
+                                            className="combined-chart-axis-label"
+                                            x={padding.left - 10}
+                                            y={y + 4}
+                                            textAnchor="end"
+                                        >
+                                            {Number(gridValue.toFixed(1))}
+                                        </text>
                                     </g>
-                                ))}
-                            </g>
-                        );
-                    })}
-                </svg>
+                                );
+                            })}
+
+                            {data.map((item, index) => {
+                                const groupCenter = padding.left
+                                    + groupWidth * index
+                                    + groupWidth / 2;
+                                const firstX = groupCenter - barWidthValue - barGap / 2;
+                                const secondX = groupCenter + barGap / 2;
+
+                                return (
+                                    <g key={item.sessionId}>
+                                        {BAR_CHART_SERIES.map((series, seriesIndex) => {
+                                            const rawValue = item[series.key];
+                                            const value = Number.isFinite(rawValue) ? rawValue : 0;
+                                            const barHeight = (value / barAxisMax) * chartHeight;
+                                            const x = seriesIndex === 0 ? firstX : secondX;
+                                            const y = padding.top + chartHeight - barHeight;
+
+                                            return (
+                                                <rect
+                                                    key={`${series.key}-${item.sessionId}`}
+                                                    className={`combined-chart-bar ${series.className}`}
+                                                    x={x}
+                                                    y={y}
+                                                    width={barWidthValue}
+                                                    height={barHeight}
+                                                    rx="4"
+                                                >
+                                                    <title>
+                                                        {`${item.label} · ${series.label}: ${value.toFixed(series.fixed)}${series.unit}`}
+                                                    </title>
+                                                </rect>
+                                            );
+                                        })}
+
+                                        <text
+                                            className="combined-chart-session-label"
+                                            x={groupCenter}
+                                            y={height - 18}
+                                            textAnchor="middle"
+                                        >
+                                            {item.label}
+                                        </text>
+                                    </g>
+                                );
+                            })}
+                        </svg>
+                    </div>
+                </div>
             </div>
 
             <div className="mypage-chart-values">
                 {data.map((item) => (
-                    <div
-                        key={item.sessionId}
-                        className="mypage-chart-value-card"
-                    >
+                    <div key={item.sessionId} className="mypage-chart-value-card">
                         <strong>{item.label}</strong>
-
-                        <span>
-                            점수{' '}
-                            {Number.isFinite(item.averageScore)
-                                ? `${item.averageScore.toFixed(1)}점`
-                                : '-'}
-                        </span>
-
-                        <span>
-                            목소리{' '}
-                            {Number.isFinite(item.averageVoice)
-                                ? `${item.averageVoice.toFixed(2)}%`
-                                : '-'}
-                        </span>
-
-                        <span>
-                            음량{' '}
-                            {Number.isFinite(item.averageVolume)
-                                ? `${item.averageVolume.toFixed(2)}%`
-                                : '-'}
-                        </span>
-
-                        <span>
-                            속도{' '}
-                            {Number.isFinite(item.averageWpm)
-                                ? `${item.averageWpm.toFixed(0)}wpm`
-                                : '-'}
-                        </span>
-
-                        <span>
-                            습관어{' '}
-                            {Number.isFinite(item.averageFiller)
-                                ? `${item.averageFiller.toFixed(1)}회`
-                                : '-'}
-                        </span>
-
-                        <span>
-                            시선 이탈{' '}
-                            {Number.isFinite(item.averageGazeLoss)
-                                ? `${item.averageGazeLoss.toFixed(1)}회`
-                                : '-'}
-                        </span>
+                        <span>점수 {Number.isFinite(item.averageScore) ? `${item.averageScore.toFixed(1)}점` : '-'}</span>
+                        <span>목소리 {Number.isFinite(item.averageVoice) ? `${item.averageVoice.toFixed(2)}%` : '-'}</span>
+                        <span>음량 {Number.isFinite(item.averageVolume) ? `${item.averageVolume.toFixed(2)}%` : '-'}</span>
+                        <span>속도 {Number.isFinite(item.averageWpm) ? `${item.averageWpm.toFixed(0)}wpm` : '-'}</span>
+                        <span>습관어 {Number.isFinite(item.averageFiller) ? `${item.averageFiller.toFixed(1)}회` : '-'}</span>
+                        <span>시선 이탈 {Number.isFinite(item.averageGazeLoss) ? `${item.averageGazeLoss.toFixed(1)}회` : '-'}</span>
                     </div>
                 ))}
             </div>
         </section>
     );
 }
+
 
 function MyPage() {
     const navigate = useNavigate();
@@ -363,6 +421,7 @@ function MyPage() {
     const [errorMessage, setErrorMessage] = useState('');
     const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
     const [chartSessionLimit, setChartSessionLimit] = useState(3);
+    const [resultView, setResultView] = useState('charts');
 
     useEffect(() => {
         const fetchQaLogs = async () => {
@@ -496,7 +555,7 @@ function MyPage() {
 
             return {
                 sessionId: session.sessionId,
-                label: `면접 ${originalIndex + 1}`,
+                label: `${originalIndex + 1}`,
 
                 averageScore: calculateAverage(
                     session.qaLogs,
@@ -597,7 +656,7 @@ function MyPage() {
     }
 
     return (
-        <main className="mypage page">
+        <main className="mypage">
             <header className="mypage-header">
                 <div>
                     <h1>마이페이지</h1>
@@ -637,12 +696,8 @@ function MyPage() {
                                 type="button"
                                 className="mypage-main-button"
                                 onClick={() => {
-                                    setTimeout(() => {
-                                        window.scrollTo({
-                                            top: 0,
-                                            behavior: 'smooth',
-                                        });
-                                    }, 0);
+                                    setResultView('charts');
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
                                 }}
                             >
                                 그래프
@@ -660,46 +715,59 @@ function MyPage() {
                                 }
                                 onClick={() => {
                                     setSelectedSessionId(session.sessionId);
-
-                                    setTimeout(() => {
-                                        window.scrollTo({
-                                            top: document.documentElement.scrollHeight,
-                                            behavior: 'smooth',
-                                        });
-                                    }, 0);
+                                    setResultView('details');
+                                    window.scrollTo({ top: 0, behavior: 'smooth' });
                                 }}
                             >
                                 <span className="session-label">
                                     면접 {sessions.length - index}
                                 </span>
-
-                                <strong>
-                                    {session.jobCategory || '직무 미지정'}
-                                </strong>
-
+                                <strong>{session.jobCategory || '직무 미지정'}</strong>
+                                <span>{formatDate(session.createdAt)}</span>
                                 <span>
-                                    {formatDate(session.createdAt)}
-                                </span>
-
-                                <span>
-                                    답변 {session.qaLogs.length}개
-                                    {' · '}
-                                    종합 점수 {session.overallScore ?? '-'}점
+                                    답변 {session.qaLogs.length}개 · 종합 점수{' '}
+                                    {session.overallScore ?? '-'}점
                                 </span>
                             </button>
                         ))}
                     </aside>
 
                     <section className="mypage-result">
-                        <InterviewAverageChart
-                            data={interviewMetrics}
-                            sessionLimit={chartSessionLimit}
-                            onSessionLimitChange={setChartSessionLimit}
-                            totalSessionCount={sessions.length}
-                        />
+                        {/*
+                        <div className="mypage-view-navigation">
+                            <button
+                                type="button"
+                                className="mypage-view-button"
+                                onClick={() => setResultView('charts')}
+                                disabled={resultView === 'charts'}
+                            >
+                                이전
+                            </button>
 
-                        {selectedSession && (
-                            <>
+                            <span>
+                                {resultView === 'charts' ? '그래프' : '상세 결과'}
+                            </span>
+
+                            <button
+                                type="button"
+                                className="mypage-view-button"
+                                onClick={() => setResultView('details')}
+                                disabled={resultView === 'details' || !selectedSession}
+                            >
+                                다음
+                            </button>
+                        </div>
+                         */}
+
+                        {resultView === 'charts' ? (
+                            <InterviewAverageChart
+                                data={interviewMetrics}
+                                sessionLimit={chartSessionLimit}
+                                onSessionLimitChange={setChartSessionLimit}
+                                totalSessionCount={sessions.length}
+                            />
+                        ) : selectedSession && (
+                            <div className="mypage-detail-view">
                                 <div className="mypage-session-result-header">
                                     <h2>상세 결과</h2>
                                     <button
@@ -715,139 +783,80 @@ function MyPage() {
                                 <div className="mypage-summary">
                                     <div>
                                         <span>지원 직무</span>
-
-                                        <strong>
-                                            {selectedSession.jobCategory
-                                                || '직무 미지정'}
-                                        </strong>
+                                        <strong>{selectedSession.jobCategory || '직무 미지정'}</strong>
                                     </div>
-
                                     <div>
                                         <span>종합 점수</span>
-
-                                        <strong>
-                                            {selectedSession.overallScore
-                                                ?? '-'}
-                                            점
-                                        </strong>
+                                        <strong>{selectedSession.overallScore ?? '-'}점</strong>
                                     </div>
-
                                     <div>
                                         <span>면접 일시</span>
-
-                                        <strong>
-                                            {formatDate(
-                                                selectedSession.createdAt,
-                                            )}
-                                        </strong>
+                                        <strong>{formatDate(selectedSession.createdAt)}</strong>
                                     </div>
                                 </div>
 
                                 {selectedSession.overallFeedback && (
                                     <div className="mypage-overall-feedback">
                                         <h2>종합 피드백</h2>
-
-                                        <p>
-                                            {selectedSession.overallFeedback}
-                                        </p>
+                                        <p>{selectedSession.overallFeedback}</p>
                                     </div>
                                 )}
 
                                 <div className="mypage-answer-list">
-                                    {selectedSession.qaLogs.map(
-                                        (log, index) => (
-                                            <article
-                                                key={log.id}
-                                                className="mypage-answer-card"
-                                            >
-                                                <div className="answer-card-header">
-                                                    <span>
-                                                        질문 {index + 1}
-                                                    </span>
+                                    {selectedSession.qaLogs.map((log, index) => (
+                                        <article key={log.id} className="mypage-answer-card">
+                                            <div className="answer-card-header">
+                                                <span>질문 {index + 1}</span>
+                                                <strong>{log.score ?? '-'}점</strong>
+                                            </div>
 
+                                            <div className="voice-metric-list">
+                                                <div>
+                                                    <span>목소리 떨림</span>
+                                                    <strong>{formatMetric(log.jitter_shaken_percentage, 2, '%')}</strong>
+                                                </div>
+                                                <div>
+                                                    <span>음량 흔들림</span>
+                                                    <strong>{formatMetric(log.shimmer_shaken_percentage, 2, '%')}</strong>
+                                                </div>
+                                                <div>
+                                                    <span>속도 변화</span>
+                                                    <strong>{formatMetric(log.speed_difference_wpm, 0, 'wpm')}</strong>
+                                                </div>
+                                                <div>
+                                                    <span>습관어 사용</span>
                                                     <strong>
-                                                        {log.score ?? '-'}점
+                                                        {log.filler_word_count !== null && log.filler_word_count !== undefined
+                                                            ? `${log.filler_word_count}회`
+                                                            : '-'}
                                                     </strong>
                                                 </div>
-
-                                                <div className="voice-metric-list">
-                                                    <div>
-                                                        <span>목소리 떨림</span>
-
-                                                        <strong>
-                                                            {formatMetric(
-                                                                log.jitter_shaken_percentage, 2, '%',
-                                                            )}
-                                                        </strong>
-                                                    </div>
-
-                                                    <div>
-                                                        <span>음량 흔들림</span>
-
-                                                        <strong>
-                                                            {formatMetric(
-                                                                log.shimmer_shaken_percentage, 2, '%',
-                                                            )}
-                                                        </strong>
-                                                    </div>
-
-                                                    <div>
-                                                        <span>속도 변화</span>
-
-                                                        <strong>
-                                                            {formatMetric(
-                                                                log.speed_difference_wpm, 0, 'wpm',
-                                                            )}
-                                                        </strong>
-                                                    </div>
-
-                                                    <div>
-                                                        <span>습관어 사용</span>
-
-                                                        <strong>
-                                                            {log.filler_word_count !== null && log.filler_word_count !== undefined
-                                                                ? `${log.filler_word_count}회`
-                                                                : '-'}
-                                                        </strong>
-                                                    </div>
-
-                                                    <div>
-                                                        <span>시선 이탈</span>
-
-                                                        <strong>
-                                                            {log.gaze_loss_count !== null && log.gaze_loss_count !== undefined
-                                                                ? `${log.gaze_loss_count}회`
-                                                                : '-'}
-                                                        </strong>
-                                                    </div>
+                                                <div>
+                                                    <span>시선 이탈</span>
+                                                    <strong>
+                                                        {log.gaze_loss_count !== null && log.gaze_loss_count !== undefined
+                                                            ? `${log.gaze_loss_count}회`
+                                                            : '-'}
+                                                    </strong>
                                                 </div>
+                                            </div>
 
-                                                <div className="answer-content">
-                                                    <h3>면접 질문</h3>
-                                                    <p>{log.question}</p>
-                                                </div>
-
-                                                <div className="answer-content">
-                                                    <h3>나의 답변</h3>
-                                                    <p>
-                                                        {log.transcribed_text
-                                                            || '저장된 답변이 없습니다.'}
-                                                    </p>
-                                                </div>
-
-                                                <div className="answer-feedback">
-                                                    <h3>답변 피드백</h3>
-
-                                                    <p>
-                                                        {log.feedback
-                                                            || '저장된 피드백이 없습니다.'}
-                                                    </p>
-                                                </div>
-                                            </article>
-                                        ),
-                                    )}
+                                            <div className="answer-content">
+                                                <h3>면접 질문</h3>
+                                                <p>{log.question}</p>
+                                            </div>
+                                            <div className="answer-content">
+                                                <h3>나의 답변</h3>
+                                                <p>{log.transcribed_text || '저장된 답변이 없습니다.'}</p>
+                                            </div>
+                                            <div className="answer-feedback">
+                                                <h3>답변 피드백</h3>
+                                                <p>{log.feedback || '저장된 피드백이 없습니다.'}</p>
+                                            </div>
+                                        </article>
+                                    ))}
                                 </div>
-                            </>
+                            </div>
                         )}
                     </section>
                 </div>
