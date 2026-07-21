@@ -1320,3 +1320,454 @@
     cursor: not-allowed;
     opacity: 0.55;
 }
+
+/* ========================================
+   면접 완료 모달
+======================================== */
+
+.interview-complete-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 24px;
+    box-sizing: border-box;
+    overflow: hidden;
+
+    animation: completeOverlayFadeIn 0.45s ease-out both;
+}
+
+.interview-complete-modal {
+    position: relative;
+    z-index: 3;
+
+    width: min(540px, 100%);
+    padding: 46px 42px 38px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 28px;
+
+    color: #ffffff;
+    text-align: center;
+
+    background:
+        linear-gradient(145deg,
+            rgba(35, 39, 54, 0.98),
+            rgba(20, 23, 34, 0.98));
+
+    box-shadow:
+        0 35px 100px rgba(0, 0, 0, 0.56),
+        0 0 0 1px rgba(116, 87, 245, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+    animation: completeModalAppear 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.interview-complete-modal::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 50%;
+
+    width: 62%;
+    height: 3px;
+
+    border-radius: 0 0 999px 999px;
+
+    background: linear-gradient(90deg,
+            transparent,
+            #8d74ff,
+            #5be7ff,
+            transparent);
+
+    transform: translateX(-50%);
+}
+
+.interview-complete-icon {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 86px;
+    height: 86px;
+    margin: 0 auto 22px;
+
+    border: 1px solid rgba(139, 255, 193, 0.45);
+    border-radius: 50%;
+
+    color: #ffffff;
+    font-size: 39px;
+    font-weight: 800;
+
+    background:
+        linear-gradient(145deg,
+            rgba(75, 211, 139, 0.95),
+            rgba(40, 164, 108, 0.95));
+
+    box-shadow:
+        0 0 0 10px rgba(75, 211, 139, 0.08),
+        0 12px 35px rgba(53, 199, 126, 0.32);
+
+    animation: completeCheckBounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.25s both;
+}
+
+.interview-complete-icon::after {
+    content: '';
+    position: absolute;
+    inset: -11px;
+
+    border: 2px solid rgba(91, 231, 255, 0.2);
+    border-radius: 50%;
+
+    animation: completeIconRing 1.8s ease-out 0.5s infinite;
+}
+
+.interview-complete-eyebrow {
+    margin: 0 0 10px;
+
+    color: #9f8cff;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+}
+
+.interview-complete-modal h2 {
+    margin: 0;
+
+    color: #ffffff;
+    font-size: clamp(28px, 4vw, 36px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+}
+
+.interview-complete-description {
+    margin: 18px 0 32px;
+
+    color: #aeb5c5;
+    font-size: 15px;
+    line-height: 1.75;
+    word-break: keep-all;
+}
+
+.interview-complete-buttons {
+    display: grid;
+    grid-template-columns: 1fr 1.25fr;
+    gap: 12px;
+}
+
+.interview-complete-buttons button {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    gap: 12px;
+
+    min-width: 0;
+    min-height: 74px;
+    padding: 14px 17px;
+    box-sizing: border-box;
+
+    border-radius: 17px;
+
+    color: #ffffff;
+    font-family: inherit;
+    text-align: left;
+
+    cursor: pointer;
+
+    transition:
+        transform 0.18s ease,
+        border-color 0.18s ease,
+        background 0.18s ease,
+        box-shadow 0.18s ease;
+}
+
+.interview-complete-buttons button:hover {
+    transform: translateY(-3px);
+}
+
+.interview-complete-buttons button:active {
+    transform: translateY(-1px) scale(0.99);
+}
+
+.interview-complete-main-button {
+    border: 1px solid rgba(255, 255, 255, 0.16);
+
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.interview-complete-main-button:hover {
+    border-color: rgba(255, 255, 255, 0.3);
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.interview-complete-mypage-button {
+    border: 1px solid rgba(143, 119, 255, 0.55);
+
+    background:
+        linear-gradient(135deg,
+            rgba(116, 87, 245, 0.96),
+            rgba(83, 55, 207, 0.96));
+
+    box-shadow: 0 11px 28px rgba(88, 56, 207, 0.28);
+}
+
+.interview-complete-mypage-button:hover {
+    border-color: rgba(183, 168, 255, 0.85);
+
+    box-shadow: 0 15px 35px rgba(88, 56, 207, 0.4);
+}
+
+.complete-button-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 39px;
+    height: 39px;
+    flex: 0 0 39px;
+
+    border-radius: 12px;
+
+    font-size: 19px;
+
+    background: rgba(255, 255, 255, 0.12);
+}
+
+.interview-complete-buttons button>span:nth-child(2) {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.interview-complete-buttons strong {
+    font-size: 15px;
+    line-height: 1.2;
+}
+
+.interview-complete-buttons small {
+    overflow: hidden;
+
+    color: rgba(255, 255, 255, 0.62);
+    font-size: 11px;
+    line-height: 1.2;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.complete-button-arrow {
+    margin-left: auto;
+
+    font-size: 22px;
+
+    transition: transform 0.18s ease;
+}
+
+.interview-complete-mypage-button:hover .complete-button-arrow {
+    transform: translateX(4px);
+}
+
+/* 모달 뒤쪽 빛 효과 */
+.interview-complete-glow {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 1;
+
+    width: 640px;
+    height: 640px;
+
+    border-radius: 50%;
+
+    background:
+        radial-gradient(circle,
+            rgba(111, 79, 238, 0.25),
+            rgba(67, 222, 255, 0.08) 40%,
+            transparent 68%);
+
+    transform: translate(-50%, -50%);
+
+    animation: completeGlowPulse 2.4s ease-in-out infinite;
+}
+
+/* 폭죽 */
+.interview-complete-confetti {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+
+    overflow: hidden;
+
+    pointer-events: none;
+}
+
+.complete-confetti-piece {
+    position: absolute;
+    top: -32px;
+    left: var(--confetti-left);
+
+    width: 10px;
+    height: 18px;
+
+    border-radius: 3px;
+
+    opacity: 0;
+
+    transform:
+        translate3d(0, -30px, 0) rotate(var(--confetti-rotation));
+
+    animation: completeConfettiFall var(--confetti-duration) cubic-bezier(0.17, 0.67, 0.35, 1) var(--confetti-delay) infinite;
+}
+
+.complete-confetti-color-0 {
+    background: #7457f5;
+}
+
+.complete-confetti-color-1 {
+    background: #5be7ff;
+}
+
+.complete-confetti-color-2 {
+    background: #ffd166;
+}
+
+.complete-confetti-color-3 {
+    background: #ef476f;
+}
+
+.complete-confetti-color-4 {
+    background: #61e294;
+}
+
+.complete-confetti-color-5 {
+    background: #ff8c42;
+}
+
+/* 애니메이션 */
+@keyframes completeOverlayFadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes completeModalAppear {
+    0% {
+        opacity: 0;
+        transform: translateY(34px) scale(0.88);
+    }
+
+    65% {
+        opacity: 1;
+        transform: translateY(-5px) scale(1.015);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes completeCheckBounce {
+    0% {
+        opacity: 0;
+        transform: scale(0.25) rotate(-18deg);
+    }
+
+    70% {
+        opacity: 1;
+        transform: scale(1.12) rotate(4deg);
+    }
+
+    100% {
+        opacity: 1;
+        transform: scale(1) rotate(0);
+    }
+}
+
+@keyframes completeIconRing {
+    0% {
+        opacity: 0.65;
+        transform: scale(0.82);
+    }
+
+    100% {
+        opacity: 0;
+        transform: scale(1.45);
+    }
+}
+
+@keyframes completeGlowPulse {
+
+    0%,
+    100% {
+        opacity: 0.7;
+        transform: translate(-50%, -50%) scale(0.94);
+    }
+
+    50% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.06);
+    }
+}
+
+@keyframes completeConfettiFall {
+    0% {
+        opacity: 0;
+        transform:
+            translate3d(0, -35px, 0) rotate(var(--confetti-rotation));
+    }
+
+    10% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0.92;
+        transform:
+            translate3d(var(--confetti-drift),
+                calc(100vh + 70px),
+                0) rotate(calc(var(--confetti-rotation) + 720deg));
+    }
+}
+
+/* 작은 화면 */
+@media (max-width: 620px) {
+    .interview-complete-modal {
+        padding: 38px 22px 25px;
+        border-radius: 23px;
+    }
+
+    .interview-complete-buttons {
+        grid-template-columns: 1fr;
+    }
+
+    .interview-complete-buttons button {
+        min-height: 68px;
+    }
+}
+
+/* 움직임 최소화 설정 사용자 */
+@media (prefers-reduced-motion: reduce) {
+
+    .interview-complete-overlay,
+    .interview-complete-modal,
+    .interview-complete-icon,
+    .interview-complete-glow,
+    .complete-confetti-piece,
+    .interview-complete-icon::after {
+        animation: none;
+    }
+}
