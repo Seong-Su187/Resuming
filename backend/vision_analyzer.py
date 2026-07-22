@@ -76,12 +76,12 @@ def check_gaze_loss(base64_image: str, baseline_nose: float = 0.5, baseline_iris
     if nose_ratio is None or iris_ratio is None:
         return True
         
-    # 영점 기준으로 고개가 좌우 15% 이상 돌아갔는지 확인
-    if abs(nose_ratio - baseline_nose) > 0.15:
+    # 영점 기준으로 고개가 좌우 10% 이상 돌아갔는지 확인 (기존 0.15 -> 0.10)
+    if abs(nose_ratio - baseline_nose) > 0.10:
         return True
         
-    # 영점 기준으로 눈동자가 좌우 20% 이상 굴러갔는지 확인
-    if abs(iris_ratio - baseline_iris) > 0.20:
+    # 영점 기준으로 눈동자가 좌우 8% 이상 굴러갔는지 확인 (기존 0.20 -> 0.08)
+    if abs(iris_ratio - baseline_iris) > 0.08:
         return True
 
     return False

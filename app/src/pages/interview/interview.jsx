@@ -2469,7 +2469,7 @@ function Interview() {
         checkCameraDevice();
     }, []);
 
-    // 🚀 수정: 서버로 프레임 보낼 때 현재 질문 중인 면접관에 맞춰 기준값을 교체하여 전송
+    // 🚀 수정: 서버로 프레임 보낼 때 현재 질문 중인 면접관에 맞춰 기준값을 교체하여 전송하고 녹음 중(is_recording) 상태도 같이 전송
     useEffect(() => {
         let interval;
         if (step === 'answer' && isCameraActive && websocketRef.current?.readyState === WebSocket.OPEN) {
@@ -2488,6 +2488,7 @@ function Interview() {
                             current_target: currentInterviewer, // 현재 쳐다봐야 할 면접관 (서버 참고용)
                             baseline_nose: activeNose,          // 동적으로 바뀌는 실제 검사 기준값
                             baseline_iris: activeIris,
+                            is_recording: isRecordingAnswerRef.current, // 🚀 이 부분에 추가되었습니다
 
                             // (혹시 모를 서버 로그 기록이나 하위 호환성을 위한 개별 데이터 유지)
                             baseline_nose_hr: baselines.hrNose,

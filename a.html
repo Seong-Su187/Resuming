@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Interview System Architecture - Professional Edition</title>
+    <style>
+        :root {
+            --bg-color: #090d16;
+            --container-bg: #0f172a;
+            --card-bg: #1e293b;
+            --border-color: #334155;
+            --accent-blue: #3b82f6;
+            --accent-cyan: #06b6d4;
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 30px;
+        }
+        .wrapper {
+            max-width: 1400px;
+            margin: 0 auto;
+            background-color: var(--container-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+        }
+        .header-title {
+            font-size: 11px;
+            letter-spacing: 2px;
+            color: var(--accent-cyan);
+            text-transform: uppercase;
+            margin-bottom: 5px;
+            font-weight: 700;
+        }
+        .main-title-area {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+            margin-bottom: 25px;
+        }
+        h1 {
+            margin: 0;
+            font-size: 26px;
+            color: var(--text-main);
+            font-weight: 600;
+        }
+        .subtitle {
+            font-size: 13px;
+            color: var(--text-sub);
+            margin-top: 5px;
+        }
+        .badge-top {
+            background-color: rgba(59, 130, 246, 0.1);
+            border: 1px solid var(--accent-blue);
+            color: var(--accent-blue);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        /* 4개 트랙 레이아웃 */
+        .tracks-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 25px;
+        }
+        .track-column {
+            background-color: rgba(30, 41, 59, 0.5);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .track-header {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent-blue);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-bottom: 5px;
+        }
+        
+        /* 개별 노드 카드 */
+        .node-card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 14px;
+            position: relative;
+            transition: transform 0.2s, border-color 0.2s;
+        }
+        .node-card:hover {
+            border-color: var(--accent-blue);
+            transform: translateY(-2px);
+        }
+        .node-number {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--accent-cyan);
+            margin-bottom: 4px;
+        }
+        .node-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 8px;
+        }
+        .node-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            font-size: 12px;
+            color: var(--text-sub);
+            line-height: 1.5;
+        }
+        .node-list li::before {
+            content: "• ";
+            color: var(--accent-cyan);
+        }
+
+        /* 하단 인프라 푸터 */
+        .footer-infra {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 15px;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .infra-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .infra-icon {
+            font-size: 18px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--border-color);
+            padding: 8px;
+            border-radius: 6px;
+            text-align: center;
+        }
+        .infra-text h5 {
+            margin: 0;
+            font-size: 12px;
+            color: var(--text-main);
+        }
+        .infra-text p {
+            margin: 2px 0 0 0;
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <div class="header-title">ENTERPRISE RECRUITMENT PLATFORM ARCHITECTURE</div>
+    <div class="main-title-area">
+        <div>
+            <h1>실시간 AI 면접 시스템 아키텍처</h1>
+            <div class="subtitle">이력서 기반 맞춤형 문항 생성, 다차원 멀티모달 분석, 실시간 아바타 립싱크 핑퐁 파이프라인</div>
+        </div>
+        <div class="badge-top">SYSTEM DESIGN SPEC</div>
+    </div>
+
+    <!-- 4개 트랙 구성 -->
+    <div class="tracks-container">
+        
+        <!-- Track 1 -->
+        <div class="track-column">
+            <div class="track-header">Track 1<br><span style="font-size:11px; color:#94a3b8;">Client & Frontend App</span></div>
+            
+            <div class="node-card">
+                <div class="node-number">01</div>
+                <div class="node-title">메인 & 이력서 관리</div>
+                <ul class="node-list">
+                    <li>로그인 상태에 따른 라우팅 분기</li>
+                    <li>PDF 이력서 업로드 및 재사용 API 연동</li>
+                    <li>다대다 지원자 선택 및 랜덤 순서 설정</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">02</div>
+                <div class="node-title">평소 목소리(Baseline) 녹음</div>
+                <ul class="node-list">
+                    <li>1분 평음 데이터 수집 및 WebM 변환</li>
+                    <li>백엔드 음성 분석 API 전송</li>
+                    <li>개인별 기준 음성 데이터 저장</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">03</div>
+                <div class="node-title">실시간 면접 & 웹캠 UI</div>
+                <ul class="node-list">
+                    <li>우측 상단 웹캠 실시간 거울 모드 출력</li>
+                    <li>텍스트·음성 답변 모드 기본 구조</li>
+                    <li>WebSocket 핑퐁 질의응답 화면 연동</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">04</div>
+                <div class="node-title">마이페이지 & 대시보드</div>
+                <ul class="node-list">
+                    <li>시선 유지율 및 긍정 표정 시각화</li>
+                    <li>음량, 속도, 떨림 지표 차트 카드 리스트</li>
+                    <li>과거 이력 트렌드 리포트 확인</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Track 2 -->
+        <div class="track-column">
+            <div class="track-header">Track 2<br><span style="font-size:11px; color:#94a3b8;">FastAPI Backend</span></div>
+            
+            <div class="node-card">
+                <div class="node-number">05</div>
+                <div class="node-title">도메인별 Router 모듈화</div>
+                <ul class="node-list">
+                    <li>auth, profiles, interviews, qa_logs 분리</li>
+                    <li>Pydantic 기반 DTO 스키마 검증</li>
+                    <li>SQLAlchemy 다이렉트 RDBMS 세션 관리</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">06</div>
+                <div class="node-title">멀티모달 입력 처리 API</div>
+                <ul class="node-list">
+                    <li>WebM 음성 파일을 WAV로 실시간 변환</li>
+                    <li>OpenAI Whisper STT 텍스트 변환</li>
+                    <li>비전 프레임 및 오디오 페이로드 수신</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">07</div>
+                <div class="node-title">RAG & LLM 질의응답 제어</div>
+                <ul class="node-list">
+                    <li>gpt-4o-mini 맞춤형 꼬리 질문 5개 생성</li>
+                    <li>interview_rag_store 정답지 벡터 대조 채점</li>
+                    <li>동문서답 예외 처리 및 강제 0점 로직</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">08</div>
+                <div class="node-title">WebSocket & Fallback 제어</div>
+                <ul class="node-list">
+                    <li>초저지연 양방향 통신 채널 개설</li>
+                    <li>아바타 지연 시 Base64 TTS Fallback 보장</li>
+                    <li>qa_logs 데이터 지속 적재</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Track 3 -->
+        <div class="track-column">
+            <div class="track-header">Track 3<br><span style="font-size:11px; color:#94a3b8;">AI / LLM & Analysis Layer</span></div>
+            
+            <div class="node-card">
+                <div class="node-number">09</div>
+                <div class="node-title">초개인화 질문 생성 파이프라인</div>
+                <ul class="node-list">
+                    <li>PyPDF2 활용 이력서 텍스트 파싱</li>
+                    <li>직무 및 문맥 기반 전문 면접관 프롬프트</li>
+                    <li>기술/인성 질문 유형별 분기 처리</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">10</div>
+                <div class="node-title">신규 AI 분석 엔진 3종</div>
+                <ul class="node-list">
+                    <li>audio_analyzer: Praat 기반 Jitter, Shimmer, WPM</li>
+                    <li>vision_analyzer: MediaPipe Iris 시선 이탈 감지</li>
+                    <li>filler_analyzer: '어, 음' 등 습관어 카운팅</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">11</div>
+                <div class="node-title">성장 추이 및 다이내믹 피드백</div>
+                <ul class="node-list">
+                    <li>직전 면접 대비 성과(점수/긴장도) 비교 연산</li>
+                    <li>맞춤형 칭찬 및 격려 메시지 자동 생성</li>
+                    <li>구조화 면접 기준(STAR 기법) 평가 반영</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Track 4 -->
+        <div class="track-column">
+            <div class="track-header">Track 4<br><span style="font-size:11px; color:#94a3b8;">Multimodal & Playback (Avatar)</span></div>
+            
+            <div class="node-card">
+                <div class="node-number">12</div>
+                <div class="node-title">OpenAI TTS 오디오 변환</div>
+                <ul class="node-list">
+                    <li>면접관 질문 텍스트 음성(mp3/wav) 합성</li>
+                    <li>Voice 설정 (onyx, echo 등 분기)</li>
+                    <li>독립적 TTS 페이로드 생성</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">13</div>
+                <div class="node-title">Google Colab MuseTalk 렌더링</div>
+                <ul class="node-list">
+                    <li>ngrok 고정 도메인(Static Domain) 연동</li>
+                    <li>Google Drive 체크포인트/모델 캐싱</li>
+                    <li>안면 인식 및 전처리 결과 캐싱 최적화</li>
+                </ul>
+            </div>
+
+            <div class="node-card">
+                <div class="node-number">14</div>
+                <div class="node-title">실시간 립싱크 양방향 스트리밍</div>
+                <ul class="node-list">
+                    <li>[Backend ➔ Colab] TTS 음성 파형 전송</li>
+                    <li>[Colab ➔ Backend] 립싱크 영상 합성 반환</li>
+                    <li>[Backend ➔ Frontend] Base64 / Chunk 릴레이</li>
+                </ul>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- 하단 인프라 바 -->
+    <div class="footer-infra">
+        <div class="infra-item">
+            <div class="infra-icon">🗄️</div>
+            <div class="infra-text">
+                <h5>DB & Storage</h5>
+                <p>PostgreSQL / SQLAlchemy</p>
+            </div>
+        </div>
+        <div class="infra-item">
+            <div class="infra-icon">🔒</div>
+            <div class="infra-text">
+                <h5>보안 및 암호화</h5>
+                <p>passlib / bcrypt / .env 격리</p>
+            </div>
+        </div>
+        <div class="infra-item">
+            <div class="infra-icon">⚡</div>
+            <div class="infra-text">
+                <h5>실시간 통신</h5>
+                <p>FastAPI WebSocket / Asyncio</p>
+            </div>
+        </div>
+        <div class="infra-item">
+            <div class="infra-icon">🔄</div>
+            <div class="infra-text">
+                <h5>병렬 처리 엔진</h5>
+                <p>asyncio.gather (가상 지원자)</p>
+            </div>
+        </div>
+        <div class="infra-item">
+            <div class="infra-icon">🚀</div>
+            <div class="infra-text">
+                <h5>GPU 캐시 & 웜업</h5>
+                <p>Colab Cache / Warmup</p>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+</body>
+</html>
