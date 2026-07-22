@@ -44,6 +44,22 @@ function Interview() {
         },
     ];
 
+    const INTERVIEWER_SATISFIED_VIDEOS = [
+        '/assets/interviewer-avatar-satisfied1.mp4',
+        '/assets/interviewer-avatar-satisfied2.mp4',
+        '/assets/interviewer-avatar-satisfied3.mp4',
+        '/assets/interviewer-avatar-satisfied4.mp4',
+        '/assets/interviewer-avatar-satisfied5.mp4',
+    ];
+
+    const INTERVIEWER_DISSATISFIED_VIDEOS = [
+        '/assets/interviewer-avatar-dissatisfied1.mp4',
+        '/assets/interviewer-avatar-dissatisfied2.mp4',
+        '/assets/interviewer-avatar-dissatisfied3.mp4',
+        '/assets/interviewer-avatar-dissatisfied4.mp4',
+        '/assets/interviewer-avatar-dissatisfied5.mp4',
+    ];
+
     const getRandomInterviewerDefaultVideo = () => {
         const randomValue = Math.random();
         let accumulatedProbability = 0;
@@ -57,6 +73,17 @@ function Interview() {
         }
 
         return INTERVIEWER_DEFAULT_VIDEOS[0].url;
+    };
+
+    const getRandomVideo = (videos) => {
+        if (!Array.isArray(videos) || videos.length === 0) {
+            return '';
+        }
+
+        const randomIndex =
+            Math.floor(Math.random() * videos.length);
+
+        return videos[randomIndex];
     };
 
     const fileInputRef = useRef(null);
@@ -112,6 +139,7 @@ function Interview() {
     const isInterviewerStreamPlayingRef = useRef(false);
     const isDefaultVideoTransitioningRef = useRef(false);
     const pendingInterviewerMessageRef = useRef(null);
+    const pendingEvaluationVideoRef = useRef(null);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
@@ -326,7 +354,11 @@ function Interview() {
         }
 
         const nextVideoUrl =
+            pendingEvaluationVideoRef.current ||
             getRandomInterviewerDefaultVideo();
+
+        // 평가 영상은 한 번만 재생
+        pendingEvaluationVideoRef.current = null;
 
         const handleCanPlay = async () => {
             nextVideo.removeEventListener(
@@ -1726,6 +1758,14 @@ function Interview() {
                         'system',
                         `답변 평가 ${data.score}점\n${data.feedback}`,
                     );
+
+                    const evaluationVideos =
+                        Number(data.score) >= 50
+                            ? INTERVIEWER_SATISFIED_VIDEOS
+                            : INTERVIEWER_DISSATISFIED_VIDEOS;
+
+                    pendingEvaluationVideoRef.current =
+                        getRandomVideo(evaluationVideos);
 
                     if (
                         interviewModeRef.current === 'developer' &&
@@ -3261,7 +3301,7 @@ function Interview() {
                                 type="button"
                                 className="interview-complete-main-button"
                                 onClick={() =>
-                                    handleCompleteNavigation('/main')
+                                    handleCompleteNavigation('/')
                                 }
                             >
                                 <span className="complete-button-icon">
