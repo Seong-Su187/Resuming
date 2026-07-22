@@ -750,7 +750,15 @@ async def process_interview_audio(
             
         convert_audio_to_wav(temp_webm_path, temp_wav_path)
         transcribed_text = process_audio_to_text(temp_wav_path)
-        current_metrics = extract_voice_metrics(temp_wav_path, transcribed_text)
+        if not transcribed_text or not transcribed_text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="답변 음성이 감지되지 않았습니다. 조금 더 크게 다시 답변해 주세요.",
+            )
+        current_metrics = extract_voice_metrics(
+            temp_wav_path,
+            transcribed_text,
+        )
         
         profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = :user_id")
         profile = db.execute(profile_query, {"user_id": user_id}).fetchone()

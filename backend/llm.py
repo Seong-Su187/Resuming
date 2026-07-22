@@ -1,6 +1,11 @@
 import os
+import re
 import json
 import random
+import subprocess
+import tempfile
+import wave
+import audioop
 from openai import OpenAI
 from dotenv import load_dotenv
 
@@ -144,18 +149,236 @@ def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str 
         print(f"Evaluation Error: {str(e)}")
         return {"score": 50, "feedback": "답변 평가 중 오류가 발생했습니다. 다음 질문으로 넘어갑니다."}
 
-def process_audio_to_text(audio_file_path: str) -> str:
-    """OpenAI Whisper API를 활용한 STT (음성 -> 텍스트)"""
+def preprocess_audio(input_path: str, output_path: str) -> bool:
+    """
+    FFmpeg로 음성을 16kHz mono WAV로 변환하고 기본 잡음을 제거합니다.
+    성공하면 True, 실패하면 False를 반환합니다.
+    """
     try:
-        with open(audio_file_path, "rb") as audio_file:
-            transcription = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file
+        command = [
+            "ffmpeg",
+            "-y",
+            "-i", input_path,
+
+            # 단일 채널, 16kHz로 변환
+            "-ac", "1",
+            "-ar", "16000",
+
+            # 잡음 제거 및 무음 제거 및 음량 정규화
+            "-af",
+            (
+                "highpass=f=80,"
+                "lowpass=f=8000,"
+                "afftdn=nf=-25,"
+                "silenceremove="
+                "start_periods=1:"
+                "start_duration=0.2:"
+                "start_threshold=-40dB:"
+                "stop_periods=-1:"
+                "stop_duration=0.5:"
+                "stop_threshold=-40dB,"
+                "dynaudnorm"
+            ),
+            "-c:a", "pcm_s16le",
+            output_path,
+        ]
+
+        result = subprocess.run(
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            print(
+                "Audio Preprocessing Error:",
+                result.stderr.decode("utf-8", errors="ignore"),
             )
-        return transcription.text
+            return False
+
+        return os.path.exists(output_path)
+
+    except Exception as e:
+        print(f"Audio Preprocessing Error: {str(e)}")
+        return False
+
+
+def has_meaningful_voice(
+    audio_path: str,
+    rms_threshold: int = 500,
+    minimum_active_ratio: float = 0.05,
+) -> bool:
+    """
+    WAV 파일에 의미 있는 크기의 소리가 포함되어 있는지 검사
+
+    rms_threshold:
+        이 값보다 작은 음량은 무음 또는 미세 잡음으로 규정
+
+    minimum_active_ratio:
+        전체 오디오 중 일정 비율 이상 소리가 있어야 정상 발화 인정
+    """
+    try:
+        with wave.open(audio_path, "rb") as wav_file:
+            sample_width = wav_file.getsampwidth()
+            frame_rate = wav_file.getframerate()
+
+            if wav_file.getnchannels() != 1:
+                print("Voice Detection Error: mono WAV 파일이 아닙니다.")
+                return False
+
+            # 100ms 단위로 음량 검사
+            chunk_size = max(1, int(frame_rate * 0.1))
+
+            total_chunks = 0
+            active_chunks = 0
+            maximum_rms = 0
+
+            while True:
+                frames = wav_file.readframes(chunk_size)
+
+                if not frames:
+                    break
+
+                total_chunks += 1
+                rms = audioop.rms(frames, sample_width)
+                maximum_rms = max(maximum_rms, rms)
+
+                if rms >= rms_threshold:
+                    active_chunks += 1
+
+            if total_chunks == 0:
+                return False
+
+            active_ratio = active_chunks / total_chunks
+
+            print(
+                "[음성 감지 결과]",
+                f"최대 RMS: {maximum_rms},",
+                f"활성 구간 비율: {active_ratio:.2%}",
+            )
+
+            return (
+                maximum_rms >= rms_threshold
+                and active_ratio >= minimum_active_ratio
+            )
+
+    except Exception as e:
+        print(f"Voice Detection Error: {str(e)}")
+        return False
+
+
+def process_audio_to_text(audio_file_path: str) -> str:
+    """
+    음성 전처리 후 OpenAI Whisper API로 STT를 수행
+
+    1. 기본 잡음 감소
+    2. 일정 크기 이상의 소리 존재 여부 확인
+    3. Whisper STT 수행
+    4. 확인된 환각 문구만 제거
+    """
+    processed_audio_path = None
+
+    try:
+        if not os.path.exists(audio_file_path):
+            print(
+                f"STT Error: 파일을 찾을 수 없습니다. "
+                f"{audio_file_path}"
+            )
+            return ""
+
+        with tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False,
+        ) as temporary_file:
+            processed_audio_path = temporary_file.name
+
+        preprocessing_success = preprocess_audio(
+            input_path=audio_file_path,
+            output_path=processed_audio_path,
+        )
+
+        if not preprocessing_success:
+            return ""
+
+        if not has_meaningful_voice(processed_audio_path):
+            print(
+                "STT Skip: 일정 크기 이상의 소리가 "
+                "감지되지 않았습니다."
+            )
+            return ""
+
+        with open(processed_audio_path, "rb") as audio_file:
+            transcription = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=audio_file,
+                language="ko",
+            )
+
+        text = (transcription.text or "").strip()
+
+        if not text:
+            print("STT Skip: 전사 결과가 비어 있습니다.")
+            return ""
+
+        # 공백, 특수문자, 대소문자를 무시하고 비교
+        normalized_text = re.sub(
+            r"[^a-zA-Z가-힣0-9]",
+            "",
+            text,
+        ).lower()
+
+        hallucination_phrases = (
+            "시청해주셔서감사합니다",
+            "구독해주세요",
+            "좋아요와구독",
+            "구독과좋아요",
+            "좋아요부탁드려요",
+            "다음영상에서만나요",
+            "감사합니다",
+            "네감사합니다",
+            "여러분감사합니다",
+            "오늘도시청해주셔서감사합니다",
+            "MBC뉴스",
+            "KBS뉴스",
+            "SBS뉴스",
+            "자막제공",
+            "자막제작byuptitle",
+            "자막제작byuntitle",
+            "시청해주셔서감사합니다",
+            "먹방끝 빠이빠이",
+            "uptitle",
+            "untitle",
+        )
+
+        if any(
+            phrase in normalized_text
+            for phrase in hallucination_phrases
+        ):
+            print(
+                "STT Skip: 확인된 환각 문구가 감지됐습니다. "
+                f"결과={text}"
+            )
+            return ""
+
+        print(f"[STT 결과] {text}")
+        return text
+
     except Exception as e:
         print(f"STT Error: {str(e)}")
-        return "음성을 인식하지 못했습니다."
+        return ""
+
+    finally:
+        if (
+            processed_audio_path
+            and os.path.exists(processed_audio_path)
+        ):
+            try:
+                os.remove(processed_audio_path)
+            except OSError as e:
+                print(
+                    f"Temporary File Delete Error: {str(e)}"
+                )
 
 # 아바타 캐릭터별 목소리 매핑 (20대: echo, 40대: onyx)
 AVATAR_VOICE_MAP = {
