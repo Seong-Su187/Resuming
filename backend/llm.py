@@ -281,6 +281,11 @@ def has_meaningful_voice(
 def process_audio_to_text(audio_file_path: str) -> str:
     """
     음성 전처리 후 OpenAI Whisper API로 STT를 수행
+
+    1. 기본 잡음 감소
+    2. 일정 크기 이상의 소리 존재 여부 확인
+    3. Whisper STT 수행
+    4. 확인된 환각 문구만 제거
     """
     processed_audio_path = None
 
@@ -340,34 +345,53 @@ def process_audio_to_text(audio_file_path: str) -> str:
             "구독과좋아요",
             "좋아요부탁드려요",
             "다음영상에서만나요",
-            "감사합니다",
             "네감사합니다",
             "여러분감사합니다",
             "오늘도시청해주셔서감사합니다",
-            "MBC뉴스",
-            "KBS뉴스",
-            "SBS뉴스",
+            "mbc뉴스",
+            "kbs뉴스",
+            "sbs뉴스",
             "자막제공",
             "자막제작byuptitle",
             "자막제작byuntitle",
-            "시청해주셔서감사합니다",
-            "먹방끝 빠이빠이",
+            "먹방끝빠이빠이",
+            "mbc뉴스이덕영입니다",
             "uptitle",
             "untitle",
         )
 
-        if any(
-            phrase in normalized_text
-            for phrase in hallucination_phrases
-        ):
+        cleaned_text = text
+
+        for phrase in hallucination_phrases:
+            # 환각 문구는 공백과 특수문자를 제거한 형태이므로,
+            # 원문에서도 글자 사이의 공백과 특수문자를 허용해 찾아서 제거
+            phrase_pattern = r"[\s\W_]*".join(
+                re.escape(char)
+                for char in phrase
+            )
+
+            cleaned_text = re.sub(
+                phrase_pattern,
+                "",
+                cleaned_text,
+                flags=re.IGNORECASE,
+            )
+
+        # 환각 문구 제거 후 불필요한 공백과 문장부호 정리
+        cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
+        cleaned_text = cleaned_text.strip(".,!?~·- ")
+
+        if not cleaned_text:
             print(
-                "STT Skip: 확인된 환각 문구가 감지됐습니다. "
-                f"결과={text}"
+                "STT Skip: 환각 문구 제거 후 남은 답변이 없습니다. "
+                f"원본 결과={text}"
             )
             return ""
 
-        print(f"[STT 결과] {text}")
-        return text
+        print(f"[STT 원본] {text}")
+        print(f"[STT 정제 결과] {cleaned_text}")
+
+        return cleaned_text
 
     except Exception as e:
         print(f"STT Error: {str(e)}")
