@@ -19,65 +19,81 @@ if not OPENAI_API_KEY:
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-def generate_resume_based_questions(job_category: str, resume_text: str) -> list:
-    """
-    이력서 기반 맞춤형 면접 질문 5개 생성 (전문 지식 / 인사 담당 면접관 랜덤 분리)
-    각 질문마다 어떤 아바타(목소리)를 사용할지 JSON 형태로 매핑하여 반환합니다.
-    """
+
+def get_embedding(text: str) -> list[float]:
+    """[RAG] 텍스트를 임베딩(벡터)으로 변환합니다."""
     try:
-        truncated_resume = resume_text[:4000] if resume_text else "이력서 정보 없음"
-        prompt_system = (
-            "당신은 10년 차 채용 전문가입니다. "
-            "제공된 지원자의 이력서를 분석하여 총 5개의 맞춤형 면접 질문을 생성하세요.\n"
-            "면접에는 2명의 면접관이 참여하며, 각자의 역할에 맞는 질문을 분리해서 작성해야 합니다:\n"
-            "1. 'technical' (전문 지식 면접관): 이력서 기반의 실무, 기술 깊이, 프로젝트 경험, 문제 해결 과정을 묻습니다. (avatar: 'middle_aged')\n"
-            "2. 'hr' (인사 담당 면접관): 회사 지원 동기, 입사 후 우리 회사에서 해내고 싶은 목표, 팀워크, 인성 및 컬처핏을 묻습니다. (avatar: 'young')\n\n"
-            "5개의 질문 중 3개는 'technical', 2개는 'hr' 유형으로 구성하세요.\n"
-            "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
-            "{\n"
-            '  "questions": [\n'
-            '    {"question": "지원하신 직무와 관련하여...", "type": "technical", "avatar": "middle_aged"},\n'
-            '    {"question": "우리 회사에 지원하게 된 구체적인 동기는...", "type": "hr", "avatar": "young"}\n'
-            "  ]\n"
-            "}"
+        response = client.embeddings.create(
+            input=text,
+            model="text-embedding-3-small"
         )
-        prompt_user = f"[지원 직무]: {job_category}\n\n[이력서 내용]:\n{truncated_resume}"
+        return response.data[0].embedding
+    except Exception as e:
+        print(f"[LLM Error] 임베딩 생성 실패: {str(e)}")
+        raise e
+
+
+def split_resume_text(text: str, chunk_size: int = 500) -> list[str]:
+    """[RAG] 이력서를 청크(문단/길이) 단위로 분할합니다."""
+    chunks = []
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i:i + chunk_size].strip()
+        if chunk:
+            chunks.append(chunk)
+    return chunks
+
+
+def generate_single_question(job_category: str, intent: str, context: str, q_type: str, avatar: str) -> dict:
+    """[RAG] 벡터 검색으로 찾은 관련 컨텍스트를 바탕으로 특정 의도의 면접 질문 1개를 생성합니다."""
+    try:
+        if q_type == "hr":
+            system_prompt = (
+                f"당신은 10년 차 '{job_category}' 인사 담당 면접관입니다.\n"
+                f"지원자의 이력서 중 다음 [검색된 정보]를 참고하여, '{intent}'에 관한 인성/HR 면접 질문 1개를 생성하세요.\n"
+                f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부'를 파악하는 데 집중하세요.\n"
+                f"이력서에 관련 내용이 부족하더라도 억지로 기술을 묻지 말고, 일반적이고 포괄적인 인성 면접 질문(예: 우리 회사에 지원한 구체적인 이유는 무엇인가요?)을 자연스럽게 생성하세요.\n"
+                "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
+                "{\n"
+                f'  "question": "우리 회사에 지원하게 된 구체적인 동기와 이뤄내고 싶은 목표는 무엇인가요?",\n'
+                f'  "type": "{q_type}",\n'
+                f'  "avatar": "{avatar}"\n'
+                "}"
+            )
+        else:
+            system_prompt = (
+                f"당신은 10년 차 '{job_category}' 기술 면접 평가관입니다.\n"
+                f"지원자의 이력서 중 다음 [검색된 정보]를 바탕으로 '{intent}'에 관한 기술 면접 질문 1개를 생성하세요.\n"
+                f"질문은 단순한 확인이 아니라, 지원자의 실제 프로젝트 경험에 기반하여 구체적이고 날카롭게 꼬리를 무는 형식으로 작성해야 합니다.\n"
+                "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
+                "{\n"
+                f'  "question": "이력서에 작성하신 OOO 프로젝트에서 겪은 기술적 문제를 어떻게 해결하셨나요?",\n'
+                f'  "type": "{q_type}",\n'
+                f'  "avatar": "{avatar}"\n'
+                "}"
+            )
+
+        user_prompt = f"[검색된 정보]\n{context if context else '관련 이력서 내용 없음'}"
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": prompt_system},
-                {"role": "user", "content": prompt_user}
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
-            temperature=0.7,
+            temperature=0.6,
             response_format={"type": "json_object"}
         )
         
-        result_json = json.loads(response.choices[0].message.content)
-        questions = result_json.get("questions", [])
+        return json.loads(response.choices[0].message.content)
         
-        if len(questions) < 5:
-            questions.extend([
-                {"question": "추가로 본인의 강점을 설명해 주실 수 있나요?", "type": "hr", "avatar": "young"}
-            ] * (5 - len(questions)))
-            
-        questions = questions[:5]
-        
-        # 질문 순서를 랜덤하게 섞어서 매번 면접의 흐름을 다이나믹하게 만듭니다.
-        random.shuffle(questions)
-        
-        return questions
     except Exception as e:
-        print(f"LLM Generation Error: {str(e)}")
-        fallback = [
-            {"question": "간단한 자기소개와 함께 지원 동기를 말씀해 주세요.", "type": "hr", "avatar": "young"},
-            {"question": "이력서에 적힌 프로젝트 중 가장 기술적으로 어려웠던 부분은 무엇인가요?", "type": "technical", "avatar": "middle_aged"},
-            {"question": "팀원과 의견 충돌이 발생했을 때 어떻게 해결하시나요?", "type": "hr", "avatar": "young"},
-            {"question": "지원 직무와 관련된 본인만의 강점은 무엇인가요?", "type": "technical", "avatar": "middle_aged"},
-            {"question": "입사 후 3년 뒤, 우리 회사에서 어떤 역할을 해내고 싶으신가요?", "type": "hr", "avatar": "young"}
-        ]
-        random.shuffle(fallback)
-        return fallback
+        print(f"[LLM Error] 질문 생성 실패: {str(e)}")
+        return {
+            "question": f"{intent}에 대해 구체적인 사례를 들어 설명해 주실 수 있나요?",
+            "type": q_type,
+            "avatar": avatar
+        }
+
 
 def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str = "") -> dict:
     """
@@ -211,12 +227,6 @@ def has_meaningful_voice(
 ) -> bool:
     """
     WAV 파일에 의미 있는 크기의 소리가 포함되어 있는지 검사
-
-    rms_threshold:
-        이 값보다 작은 음량은 무음 또는 미세 잡음으로 규정
-
-    minimum_active_ratio:
-        전체 오디오 중 일정 비율 이상 소리가 있어야 정상 발화 인정
     """
     try:
         with wave.open(audio_path, "rb") as wav_file:
@@ -271,11 +281,6 @@ def has_meaningful_voice(
 def process_audio_to_text(audio_file_path: str) -> str:
     """
     음성 전처리 후 OpenAI Whisper API로 STT를 수행
-
-    1. 기본 잡음 감소
-    2. 일정 크기 이상의 소리 존재 여부 확인
-    3. Whisper STT 수행
-    4. 확인된 환각 문구만 제거
     """
     processed_audio_path = None
 

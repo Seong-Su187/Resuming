@@ -8,6 +8,7 @@ import time
 import uuid
 import httpx
 import subprocess
+import random
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse, StreamingResponse, Response
@@ -22,7 +23,9 @@ from audio_analyzer import extract_voice_metrics, calculate_delta
 from filler_analyzer import count_filler_words
 from vision_analyzer import check_gaze_loss
 from llm import (
-    generate_resume_based_questions,
+    get_embedding,
+    split_resume_text,
+    generate_single_question,
     evaluate_answer_with_llm,
     process_audio_to_text,
     generate_text_to_speech,
@@ -341,6 +344,65 @@ def create_interview_session(data: SessionCreateRequest, db: Session = Depends(g
         raise HTTPException(status_code=500, detail=f"인터뷰 세션 데이터베이스 셋업 실패: {str(e)}")
 
 
+def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, db: Session) -> list:
+    """[핵심 로직] 전체 RAG 파이프라인(분할-임베딩-검색-생성)을 구동합니다."""
+    print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작")
+    
+    # 1. Chunking: 이력서를 문단/길이 단위로 분할
+    chunks = split_resume_text(resume_text)
+    
+    # 2. 기존 데이터 클렌징: 동일 세션에서 이력서를 재업로드할 경우를 대비해 기존 청크 삭제 (CAST 적용)
+    db.execute(text("DELETE FROM resume_chunks WHERE session_id = CAST(:id AS UUID)"), {"id": session_id})
+    
+    # 3. 청크별 임베딩 생성 및 DB 적재 (CAST 적용)
+    for chunk in chunks:
+        emb = get_embedding(chunk)
+        db.execute(text("""
+            INSERT INTO resume_chunks (session_id, content, embedding)
+            VALUES (CAST(:session_id AS UUID), :content, CAST(:embedding AS vector))
+        """), {
+            "session_id": session_id,
+            "content": chunk,
+            "embedding": str(emb) # SQLAlchemy에서 배열을 전달할 때 문자열로 매핑
+        })
+    db.commit()
+
+    # 4. RAG 검색 의도 5가지 정의 (HR 질문이 명확하게 나오도록 쿼리 수정)
+    search_queries = [
+        ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged"),
+        ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged"),
+        ("지원 직무와 관련된 기술적 역량과 딥다이브 꼬리 질문", "technical", "middle_aged"),
+        ("이 회사에 지원하게 된 구체적인 이유와 입사 후 이뤄내고 싶은 목표 (지원 동기 및 포부)", "hr", "young"),
+        ("팀원과의 협업 경험, 갈등 해결 방식, 또는 본인만의 장단점 (인성 및 컬처핏)", "hr", "young"),
+    ]
+
+    generated_questions = []
+    
+    # 5. 의도별 검색(Retrieval) 및 생성(Generation) (CAST 적용)
+    for intent, q_type, avatar in search_queries:
+        q_emb = get_embedding(intent)
+        
+        # 코사인 거리(<=>) 기준으로 가장 유사한 Top 3 청크 검색
+        top_chunks = db.execute(text("""
+            SELECT content 
+            FROM resume_chunks
+            WHERE session_id = CAST(:session_id AS UUID)
+            ORDER BY embedding <=> CAST(:q_emb AS vector)
+            LIMIT 3
+        """), {
+            "session_id": session_id,
+            "q_emb": str(q_emb)
+        }).fetchall()
+        
+        context = "\n\n".join([row[0] for row in top_chunks])
+        question_data = generate_single_question(job_category, intent, context, q_type, avatar)
+        generated_questions.append(question_data)
+
+    # 6. 질문 순서 섞기
+    random.shuffle(generated_questions)
+    return generated_questions
+
+
 @router.post("/{session_id}/upload-resume")
 async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """PDF 이력서를 업로드받아 텍스트를 추출하고 5개의 맞춤 질문을 생성하여 DB에 저장합니다."""
@@ -358,21 +420,21 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
                 resume_text += extracted + "\n"
 
         # 2. 세션 정보 조회하여 직무(job_category) 가져오기
-        session_query = text("SELECT job_category FROM interview_sessions WHERE id = :id")
+        session_query = text("SELECT job_category FROM interview_sessions WHERE id = CAST(:id AS UUID)")
         session_info = db.execute(session_query, {"id": session_id}).fetchone()
         if not session_info:
             raise HTTPException(status_code=404, detail="해당 인터뷰 세션을 찾을 수 없습니다.")
             
         job_category = session_info[0]
 
-        # 3. LLM을 통한 맞춤형 5가지 질문 생성 (객체 형태)
-        generated_questions = generate_resume_based_questions(job_category, resume_text)
+        # 3. [RAG 파이프라인 적용] 추출된 이력서 텍스트를 바탕으로 RAG 5가지 맞춤 질문 생성
+        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
 
         # 4. 추출된 이력서와 생성된 질문 배열을 DB에 저장
         update_query = text("""
             UPDATE interview_sessions 
             SET resume_text = :resume_text, questions = :questions 
-            WHERE id = :id
+            WHERE id = CAST(:id AS UUID)
         """)
         db.execute(update_query, {
             "resume_text": resume_text,
@@ -383,7 +445,7 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
 
         return {
             "status": "success",
-            "message": "이력서 분석 및 면접 질문 생성이 완료되었습니다.",
+            "message": "이력서 분석 및 RAG 기반 면접 질문 생성이 완료되었습니다.",
             "question_count": len(generated_questions)
         }
     except Exception as e:
@@ -398,7 +460,7 @@ def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
         query = text("""
             SELECT resume_text
             FROM interview_sessions
-            WHERE user_id = :user_id
+            WHERE user_id = CAST(:user_id AS UUID)
               AND resume_text IS NOT NULL
               AND resume_text != ''
             ORDER BY created_at DESC
@@ -441,7 +503,7 @@ def use_existing_resume(
         resume_query = text("""
             SELECT resume_text
             FROM interview_sessions
-            WHERE user_id = :user_id
+            WHERE user_id = CAST(:user_id AS UUID)
               AND resume_text IS NOT NULL
               AND resume_text != ''
             ORDER BY created_at DESC
@@ -464,7 +526,7 @@ def use_existing_resume(
         session_query = text("""
             SELECT job_category
             FROM interview_sessions
-            WHERE id = :session_id
+            WHERE id = CAST(:session_id AS UUID)
         """)
 
         session_result = db.execute(
@@ -480,16 +542,14 @@ def use_existing_resume(
 
         job_category = session_result[0]
 
-        generated_questions = generate_resume_based_questions(
-            job_category,
-            resume_text
-        )
+        # [RAG 파이프라인 적용] 기존 이력서 텍스트를 바탕으로 RAG 생성
+        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
 
         update_query = text("""
             UPDATE interview_sessions
             SET resume_text = :resume_text,
                 questions = :questions
-            WHERE id = :session_id
+            WHERE id = CAST(:session_id AS UUID)
         """)
 
         db.execute(
@@ -505,7 +565,7 @@ def use_existing_resume(
 
         return {
             "status": "success",
-            "message": "기존 이력서로 면접 질문을 생성했습니다.",
+            "message": "기존 이력서로 RAG 기반 면접 질문을 생성했습니다.",
             "question_count": len(generated_questions)
         }
 
@@ -533,7 +593,7 @@ def get_baseline_voice(
                 baseline_shimmer,
                 baseline_wpm
             FROM profiles
-            WHERE id = :user_id
+            WHERE id = CAST(:user_id AS UUID)
         """)
 
         result = db.execute(
@@ -641,7 +701,7 @@ async def save_baseline_voice(
         profile_query = text("""
             SELECT id
             FROM profiles
-            WHERE id = :user_id
+            WHERE id = CAST(:user_id AS UUID)
         """)
 
         profile = db.execute(
@@ -655,7 +715,7 @@ async def save_baseline_voice(
                 SET baseline_jitter = :baseline_jitter,
                     baseline_shimmer = :baseline_shimmer,
                     baseline_wpm = :baseline_wpm
-                WHERE id = :user_id
+                WHERE id = CAST(:user_id AS UUID)
             """)
 
             db.execute(
@@ -676,7 +736,7 @@ async def save_baseline_voice(
                     baseline_wpm
                 )
                 VALUES (
-                    :user_id,
+                    CAST(:user_id AS UUID),
                     :baseline_jitter,
                     :baseline_shimmer,
                     :baseline_wpm
@@ -760,7 +820,7 @@ async def process_interview_audio(
             transcribed_text,
         )
         
-        profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = :user_id")
+        profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = CAST(:user_id AS UUID)")
         profile = db.execute(profile_query, {"user_id": user_id}).fetchone()
         
         if not profile:
@@ -806,7 +866,7 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
     """최종 결과 조회 및 과거 면접 기록과 비교한 성장 추이 반환"""
     try:
         # 1. 현재 세션 정보 조회
-        session_query = text("SELECT user_id, overall_score, overall_feedback, created_at FROM interview_sessions WHERE id = :id")
+        session_query = text("SELECT user_id, overall_score, overall_feedback, created_at FROM interview_sessions WHERE id = CAST(:id AS UUID)")
         current_session = db.execute(session_query, {"id": session_id}).fetchone()
         
         if not current_session:
@@ -819,7 +879,7 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
 
         # 2. 현재 세션의 상세 로그 조회 (습관어, 시선 이탈 컬럼 추가)
         logs = db.execute(
-            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count FROM qa_logs WHERE session_id = :s ORDER BY created_at ASC"), 
+            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count FROM qa_logs WHERE session_id = CAST(:s AS UUID) ORDER BY created_at ASC"), 
             {"s": session_id}
         ).fetchall()
         
@@ -835,7 +895,7 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         history_query = text("""
             SELECT id, overall_score, created_at 
             FROM interview_sessions 
-            WHERE user_id = :uid AND overall_score IS NOT NULL AND created_at <= :curr_date
+            WHERE user_id = CAST(:uid AS UUID) AND overall_score IS NOT NULL AND created_at <= :curr_date
             ORDER BY created_at ASC
         """)
         history_sessions = db.execute(history_query, {"uid": user_id, "curr_date": curr_date}).fetchall()
@@ -846,7 +906,7 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
             
             # 해당 과거 세션의 평균 떨림 수치 계산
             past_logs = db.execute(
-                text("SELECT AVG(jitter_shaken_percentage), AVG(shimmer_shaken_percentage) FROM qa_logs WHERE session_id = :hs_id"), 
+                text("SELECT AVG(jitter_shaken_percentage), AVG(shimmer_shaken_percentage) FROM qa_logs WHERE session_id = CAST(:hs_id AS UUID)"), 
                 {"hs_id": hs_id}
             ).fetchone()
             
@@ -1000,7 +1060,7 @@ async def websocket_interview_endpoint(
         text("""
             SELECT questions, job_category
             FROM interview_sessions
-            WHERE id = :id
+            WHERE id = CAST(:id AS UUID)
         """),
         {"id": session_id},
     ).fetchone()
@@ -1063,19 +1123,23 @@ async def websocket_interview_endpoint(
 
             # 🚀 수정: 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석 및 기준점 적용
             elif message_type == "video_frame":
-                b64_image = data.get("image", "")
-                baseline_nose = data.get("baseline_nose", 0.5)
-                baseline_iris = data.get("baseline_iris", 0.5)
+                # 사용자가 녹음(음성 답변) 중일 때만 시선 분석 수행
+                is_recording = data.get("is_recording", False)
                 
-                if b64_image:
-                    try:
-                        # 영점 조절된 기준값을 반영하여 시선 이탈 여부 판단
-                        if check_gaze_loss(b64_image, baseline_nose, baseline_iris):
-                            current_gaze_loss_count += 1
-                    except TypeError:
-                        # vision_analyzer.py의 check_gaze_loss가 아직 새 파라미터를 받지 못하는 경우 Fallback
-                        if check_gaze_loss(b64_image):
-                            current_gaze_loss_count += 1
+                if is_recording:
+                    b64_image = data.get("image", "")
+                    baseline_nose = data.get("baseline_nose", 0.5)
+                    baseline_iris = data.get("baseline_iris", 0.5)
+                    
+                    if b64_image:
+                        try:
+                            # 영점 조절된 기준값을 반영하여 시선 이탈 여부 판단
+                            if check_gaze_loss(b64_image, baseline_nose, baseline_iris):
+                                current_gaze_loss_count += 1
+                        except TypeError:
+                            # vision_analyzer.py의 check_gaze_loss가 아직 새 파라미터를 받지 못하는 경우 Fallback
+                            if check_gaze_loss(b64_image):
+                                current_gaze_loss_count += 1
 
             elif message_type == "submit_answer":
                 user_text = data.get(
@@ -1151,7 +1215,7 @@ async def websocket_interview_endpoint(
                         gaze_loss_count
                     )
                     VALUES (
-                        :session_id,
+                        CAST(:session_id AS UUID),
                         :question,
                         :transcribed_text,
                         :jitter,
@@ -1208,7 +1272,7 @@ async def websocket_interview_endpoint(
                         text("""
                             UPDATE interview_sessions
                             SET overall_score = :score
-                            WHERE id = :id
+                            WHERE id = CAST(:id AS UUID)
                         """),
                         {
                             "score": final_avg_score,
