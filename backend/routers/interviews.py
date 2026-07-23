@@ -162,6 +162,7 @@ async def send_next_question(
     current_index: int,
     total_questions: int,
     selected_candidates: list[dict],
+    reaction_text: str = "", # 🚀 [추가] 이전 답변 리액션 텍스트 파라미터
 ):
     """
     질문 영상과 선택된 지원자들의 질문별 답변을 함께 전송합니다.
@@ -173,14 +174,17 @@ async def send_next_question(
     avatar = "middle_aged" if isinstance(question_data, str) else question_data.get("avatar", "middle_aged")
     voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
 
+    # 🚀 [수정] 아바타 음성 발화(TTS)를 위해 리액션과 질문을 합친 전체 텍스트
+    full_audio_text = f"{reaction_text} {question_text}" if reaction_text else question_text
+
     candidate_answers_task = asyncio.create_task(
         build_candidate_answers(
-            question_text,
+            question_text, # 지원자들은 리액션이 빠진 순수 질문 텍스트로 답변 생성
             selected_candidates,
         )
     )
     tts_fallback_task = asyncio.create_task(
-        _generate_tts_fallback_base64(question_text, voice)
+        _generate_tts_fallback_base64(full_audio_text, voice)
     )
 
     # 듀오 서버 테스트용 임시 매핑: 백엔드의 "hr" 타입 = 듀오 노트북의 "personality" 아바타
@@ -190,7 +194,9 @@ async def send_next_question(
         "type": "next_question",
         "current_index": current_index,
         "total_questions": total_questions,
-        "question_text": question_text,
+        "reaction_text": reaction_text,       # 🚀 [추가] 프론트엔드 말풍선 분리용 리액션 텍스트
+        "question_text": question_text,       # 🚀 [수정] 프론트엔드 말풍선 분리용 순수 질문 텍스트
+        "full_audio_text": full_audio_text,   # 🚀 [추가] 프론트엔드 TTS 스트리밍 요청용 전체 텍스트
         "interviewer_type": q_type,
         "avatar": avatar,
         "duo_avatar_type": duo_avatar_type,
@@ -1225,12 +1231,14 @@ async def websocket_interview_endpoint(
                     if isinstance(candidate, dict)
                 ]
 
+                # 🚀 첫 번째 질문을 전달할 때는 리액션 없이 바로 전송
                 await send_next_question(
                     websocket,
                     questions_list[current_index],
                     current_index + 1,
                     total_questions,
                     selected_candidates,
+                    reaction_text="", 
                 )
 
             # 🚀 수정: 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석 및 기준점 적용
@@ -1307,6 +1315,14 @@ async def websocket_interview_endpoint(
                 )
                 accumulated_score += earned_score
                 
+                # 🚀 [추가 기능] 면접관의 답변 점수를 기반으로 자연스러운 랜덤 리액션 문구 배정
+                if earned_score < 40:
+                    reaction_text = random.choice(["네...", "음, 알겠습니다.", "네, 일단 알겠습니다."])
+                elif earned_score >= 80:
+                    reaction_text = random.choice(["네, 구체적인 설명 잘 들었습니다.", "좋은 답변 감사합니다.", "네, 명확하게 이해했습니다."])
+                else:
+                    reaction_text = random.choice(["네, 알겠습니다.", "음.. 답변 감사합니다.", "네, 잘 들었습니다.", "네, 확인했습니다."])
+
                 # 피드백 텍스트에 습관어 및 시선 처리 경고 문구 덧붙이기
                 if filler_count > 0:
                     feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다. 불필요한 습관어는 전문성을 떨어뜨릴 수 있으니 유의해 주세요."
@@ -1368,12 +1384,14 @@ async def websocket_interview_endpoint(
                 current_gaze_loss_count = 0 # 다음 문항을 위해 시선 이탈 횟수 초기화
 
                 if current_index < total_questions:
+                    # 🚀 [수정] 방금 생성한 리액션 문구를 다음 질문 전송 시 함께 전달합니다.
                     await send_next_question(
                         websocket,
                         questions_list[current_index],
                         current_index + 1,
                         total_questions,
                         selected_candidates,
+                        reaction_text=reaction_text,
                     )
                 else:
                     final_avg_score = int(
