@@ -33,6 +33,9 @@ from llm import (
     AVATAR_VOICE_MAP
 )
 
+# 🚀 성능 측정용 로거 임포트 추가
+from logger_config import log_execution_time, ExecutionTimer
+
 def convert_audio_to_wav(
     input_path: str,
     output_path: str,
@@ -232,6 +235,7 @@ async def _generate_tts_chunk_base64(text: str, voice: str) -> str:
 
 
 @router.post("/avatar-video-stream")
+@log_execution_time("아바타 스트리밍 전체 과정 (avatar_video_stream)")
 async def avatar_video_stream(payload: dict = Body(...)):
     """
     질문 텍스트를 문장 단위로 쪼개서 TTS를 순차 생성하고, 문장이 준비되는 대로
@@ -292,6 +296,7 @@ async def avatar_video_stream(payload: dict = Body(...)):
 
 # 🚀 신규: 영점 조절 프레임 분석 엔드포인트
 @router.post("/calibrate-vision")
+@log_execution_time("웹캠 시선 영점 분석 (calibrate_vision_endpoint)")
 async def calibrate_vision_endpoint(payload: dict = Body(...)):
     """
     웹캠 영점 조절(Calibration)을 위해 캡처된 프레임들을 받아 분석합니다.
@@ -344,28 +349,30 @@ def create_interview_session(data: SessionCreateRequest, db: Session = Depends(g
         raise HTTPException(status_code=500, detail=f"인터뷰 세션 데이터베이스 셋업 실패: {str(e)}")
 
 
+@log_execution_time("이력서 RAG 질문 생성 전체 프로세스 (_generate_rag_questions)")
 def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, db: Session) -> list:
     """[핵심 로직] 전체 RAG 파이프라인(분할-임베딩-검색-생성)을 구동합니다."""
     print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작")
     
-    # 1. Chunking: 이력서를 문단/길이 단위로 분할
-    chunks = split_resume_text(resume_text)
-    
-    # 2. 기존 데이터 클렌징: 동일 세션에서 이력서를 재업로드할 경우를 대비해 기존 청크 삭제 (CAST 적용)
-    db.execute(text("DELETE FROM resume_chunks WHERE session_id = CAST(:id AS UUID)"), {"id": session_id})
-    
-    # 3. 청크별 임베딩 생성 및 DB 적재 (CAST 적용)
-    for chunk in chunks:
-        emb = get_embedding(chunk)
-        db.execute(text("""
-            INSERT INTO resume_chunks (session_id, content, embedding)
-            VALUES (CAST(:session_id AS UUID), :content, CAST(:embedding AS vector))
-        """), {
-            "session_id": session_id,
-            "content": chunk,
-            "embedding": str(emb) # SQLAlchemy에서 배열을 전달할 때 문자열로 매핑
-        })
-    db.commit()
+    with ExecutionTimer("RAG - 청크 임베딩 및 DB 적재", session_id=session_id):
+        # 1. Chunking: 이력서를 문단/길이 단위로 분할
+        chunks = split_resume_text(resume_text)
+        
+        # 2. 기존 데이터 클렌징: 동일 세션에서 이력서를 재업로드할 경우를 대비해 기존 청크 삭제 (CAST 적용)
+        db.execute(text("DELETE FROM resume_chunks WHERE session_id = CAST(:id AS UUID)"), {"id": session_id})
+        
+        # 3. 청크별 임베딩 생성 및 DB 적재 (CAST 적용)
+        for chunk in chunks:
+            emb = get_embedding(chunk)
+            db.execute(text("""
+                INSERT INTO resume_chunks (session_id, content, embedding)
+                VALUES (CAST(:session_id AS UUID), :content, CAST(:embedding AS vector))
+            """), {
+                "session_id": session_id,
+                "content": chunk,
+                "embedding": str(emb) # SQLAlchemy에서 배열을 전달할 때 문자열로 매핑
+            })
+        db.commit()
 
     # 4. RAG 검색 의도 5가지 정의 (HR 질문이 명확하게 나오도록 쿼리 수정)
     search_queries = [
@@ -378,25 +385,26 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
 
     generated_questions = []
     
-    # 5. 의도별 검색(Retrieval) 및 생성(Generation) (CAST 적용)
-    for intent, q_type, avatar in search_queries:
-        q_emb = get_embedding(intent)
-        
-        # 코사인 거리(<=>) 기준으로 가장 유사한 Top 3 청크 검색
-        top_chunks = db.execute(text("""
-            SELECT content 
-            FROM resume_chunks
-            WHERE session_id = CAST(:session_id AS UUID)
-            ORDER BY embedding <=> CAST(:q_emb AS vector)
-            LIMIT 3
-        """), {
-            "session_id": session_id,
-            "q_emb": str(q_emb)
-        }).fetchall()
-        
-        context = "\n\n".join([row[0] for row in top_chunks])
-        question_data = generate_single_question(job_category, intent, context, q_type, avatar)
-        generated_questions.append(question_data)
+    with ExecutionTimer("RAG - 의도별 벡터 검색 및 LLM 질문 생성", session_id=session_id):
+        # 5. 의도별 검색(Retrieval) 및 생성(Generation) (CAST 적용)
+        for intent, q_type, avatar in search_queries:
+            q_emb = get_embedding(intent)
+            
+            # 코사인 거리(<=>) 기준으로 가장 유사한 Top 3 청크 검색
+            top_chunks = db.execute(text("""
+                SELECT content 
+                FROM resume_chunks
+                WHERE session_id = CAST(:session_id AS UUID)
+                ORDER BY embedding <=> CAST(:q_emb AS vector)
+                LIMIT 3
+            """), {
+                "session_id": session_id,
+                "q_emb": str(q_emb)
+            }).fetchall()
+            
+            context = "\n\n".join([row[0] for row in top_chunks])
+            question_data = generate_single_question(job_category, intent, context, q_type, avatar)
+            generated_questions.append(question_data)
 
     # 6. 질문 순서 섞기
     random.shuffle(generated_questions)
@@ -404,20 +412,22 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
 
 
 @router.post("/{session_id}/upload-resume")
+@log_execution_time("이력서 PDF 처리 및 맞춤 질문 생성 API (upload_resume_and_generate_questions)")
 async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
     """PDF 이력서를 업로드받아 텍스트를 추출하고 5개의 맞춤 질문을 생성하여 DB에 저장합니다."""
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
 
     try:
-        # 1. PDF 텍스트 추출
-        file_content = await file.read()
-        pdf_reader = PdfReader(io.BytesIO(file_content))
-        resume_text = ""
-        for page in pdf_reader.pages:
-            extracted = page.extract_text()
-            if extracted:
-                resume_text += extracted + "\n"
+        with ExecutionTimer("PDF 파일에서 텍스트 추출", session_id=session_id):
+            # 1. PDF 텍스트 추출
+            file_content = await file.read()
+            pdf_reader = PdfReader(io.BytesIO(file_content))
+            resume_text = ""
+            for page in pdf_reader.pages:
+                extracted = page.extract_text()
+                if extracted:
+                    resume_text += extracted + "\n"
 
         # 2. 세션 정보 조회하여 직무(job_category) 가져오기
         session_query = text("SELECT job_category FROM interview_sessions WHERE id = CAST(:id AS UUID)")
@@ -493,6 +503,7 @@ def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{session_id}/use-existing-resume")
+@log_execution_time("기존 이력서로 RAG 재생성 (use_existing_resume)")
 def use_existing_resume(
     session_id: str,
     user_id: str,
@@ -645,6 +656,7 @@ def get_baseline_voice(
         )
     
 @router.post("/baseline-voice")
+@log_execution_time("기본 음성 처리 및 지표 분석 (save_baseline_voice)")
 async def save_baseline_voice(
     user_id: str = Form(...),
     audio_file: UploadFile = File(...),
@@ -672,15 +684,17 @@ async def save_baseline_voice(
             buffer.write(audio_content)
 
         # WebM/Opus → WAV 변환
-        convert_audio_to_wav(
-            temp_webm_path,
-            temp_wav_path,
-        )
+        with ExecutionTimer("기본 음성 WAV 포맷 변환"):
+            convert_audio_to_wav(
+                temp_webm_path,
+                temp_wav_path,
+            )
 
         # 변환된 WAV 파일로 STT 수행
-        transcribed_text = process_audio_to_text(
-            temp_wav_path,
-        )
+        with ExecutionTimer("기본 음성 STT 텍스트 변환"):
+            transcribed_text = process_audio_to_text(
+                temp_wav_path,
+            )
 
         if not transcribed_text or not transcribed_text.strip():
             raise HTTPException(
@@ -689,10 +703,11 @@ async def save_baseline_voice(
             )
 
         # WAV 파일로 음성 지표 분석
-        metrics = extract_voice_metrics(
-            temp_wav_path,
-            transcribed_text,
-        )
+        with ExecutionTimer("기본 음성 WPM, Jitter 등 분석"):
+            metrics = extract_voice_metrics(
+                temp_wav_path,
+                transcribed_text,
+            )
 
         baseline_jitter = float(metrics.get("jitter", 0.0))
         baseline_shimmer = float(metrics.get("shimmer", 0.0))
@@ -786,6 +801,7 @@ async def save_baseline_voice(
 
 
 @router.post("/{session_id}/process-audio")
+@log_execution_time("실전 면접 답변 오디오 전체 분석 (process_interview_audio)")
 async def process_interview_audio(
     session_id: str,
     user_id: str = Form(...),
@@ -808,17 +824,23 @@ async def process_interview_audio(
         with open(temp_webm_path, "wb") as buffer:
             buffer.write(audio_content)
             
-        convert_audio_to_wav(temp_webm_path, temp_wav_path)
-        transcribed_text = process_audio_to_text(temp_wav_path)
+        with ExecutionTimer("면접 답변 음성 포맷 변환"):
+            convert_audio_to_wav(temp_webm_path, temp_wav_path)
+        
+        with ExecutionTimer("면접 답변 STT 분석"):
+            transcribed_text = process_audio_to_text(temp_wav_path)
+        
         if not transcribed_text or not transcribed_text.strip():
             raise HTTPException(
                 status_code=400,
                 detail="답변 음성이 감지되지 않았습니다. 조금 더 크게 다시 답변해 주세요.",
             )
-        current_metrics = extract_voice_metrics(
-            temp_wav_path,
-            transcribed_text,
-        )
+            
+        with ExecutionTimer("면접 답변 지표 추출"):
+            current_metrics = extract_voice_metrics(
+                temp_wav_path,
+                transcribed_text,
+            )
         
         profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = CAST(:user_id AS UUID)")
         profile = db.execute(profile_query, {"user_id": user_id}).fetchone()
@@ -847,6 +869,7 @@ async def process_interview_audio(
 
 
 @router.post("/tts")
+@log_execution_time("단독 텍스트 투 스피치 합성 (text_to_speech)")
 async def text_to_speech(text_payload: dict):
     """텍스트와 아바타 종류("young" | "middle_aged")를 받아 그에 맞는 목소리의 음성 파일(mp3)로 반환"""
     text = text_payload.get("text", "")
@@ -962,6 +985,7 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
 # 🚀 WeasyPrint 대신 안정적인 pdfkit으로 PDF 생성
 # ==========================================
 @router.get("/{session_id}/pdf")
+@log_execution_time("최종 결과물 리포트 생성 (download_interview_pdf_report)")
 def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)):
     """면접 결과를 PDF 리포트로 구워서 반환합니다."""
     try:
@@ -1036,7 +1060,8 @@ def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)
         }
         
         # 2. PDF 메모리 변환 수행
-        pdf_bytes = pdfkit.from_string(html_content, False, configuration=config, options=options)
+        with ExecutionTimer("PDFKit 메모리 변환 실행"):
+            pdf_bytes = pdfkit.from_string(html_content, False, configuration=config, options=options)
         
         return Response(
             content=pdf_bytes, 

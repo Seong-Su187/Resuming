@@ -9,6 +9,9 @@ import audioop
 from openai import OpenAI
 from dotenv import load_dotenv
 
+# 🚀 성능 측정용 로거 데코레이터 임포트 추가
+from logger_config import log_execution_time
+
 # .env 환경 변수 파일 로드
 load_dotenv()
 
@@ -43,6 +46,7 @@ def split_resume_text(text: str, chunk_size: int = 500) -> list[str]:
     return chunks
 
 
+@log_execution_time("LLM 맞춤 면접 질문 단건 생성 (generate_single_question)")
 def generate_single_question(job_category: str, intent: str, context: str, q_type: str, avatar: str) -> dict:
     """[RAG] 벡터 검색으로 찾은 관련 컨텍스트를 바탕으로 특정 의도의 면접 질문 1개를 생성합니다."""
     try:
@@ -95,6 +99,7 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
         }
 
 
+@log_execution_time("LLM 지원자 답변 채점 및 피드백 생성 (evaluate_answer_with_llm)")
 def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str = "") -> dict:
     """
     사용자의 답변을 채점하고 피드백을 생성합니다. (동문서답 예외 처리 포함)
@@ -278,6 +283,7 @@ def has_meaningful_voice(
         return False
 
 
+@log_execution_time("Whisper API 기반 음성 텍스트 변환 (process_audio_to_text)")
 def process_audio_to_text(audio_file_path: str) -> str:
     """
     음성 전처리 후 OpenAI Whisper API로 STT를 수행
@@ -415,6 +421,7 @@ AVATAR_VOICE_MAP = {
     "middle_aged": "onyx",
 }
 
+@log_execution_time("OpenAI TTS 음성 합성 요청 (generate_text_to_speech)")
 def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
     """OpenAI TTS API를 활용한 텍스트 -> 음성 생성"""
     try:
@@ -430,6 +437,7 @@ def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
         print(f"TTS Error: {str(e)}")
         return None
 
+@log_execution_time("LLM 타 지원자 가상 답변 생성 (generate_candidate_answer_with_llm)")
 def generate_candidate_answer_with_llm(
     question: str,
     candidate_name: str,
