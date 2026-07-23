@@ -17,3 +17,4 @@ praat-parselmouth==0.4.3
 mediapipe==0.10.14
 opencv-python-headless==4.10.0.84
 pdfkit==1.0.0
+jiwer==3.0.4

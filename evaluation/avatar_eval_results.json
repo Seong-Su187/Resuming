@@ -1,0 +1,95 @@
+{
+  "count": 5,
+  "avg_LSE_C": 4.683800000000001,
+  "avg_LSE_D": 9.072799999999997,
+  "target_LSE_C": 6.0,
+  "판정": "FAIL",
+  "비고": "시간축 스무딩(픽셀 블렌딩 + 좌표/마스크 이동평균) ON/OFF 비교 테스트 결과 LSE-C 차이가 0.2 미만으로 스무딩은 원인이 아님을 확인. MuseTalk 자체가 Wav2Lip 계열보다 LSE-C가 낮게 나오는 구조적 경향과 입 영역 해상도가 주된 요인으로 추정됨.",
+  "details": [
+    {
+      "name": "eval_technical_0",
+      "avatar_type": "technical",
+      "question": "FastAPI로 PostgreSQL을 사용하여 백엔드 서비스에서 가장 큰 도전 과제는 무엇이었나요?",
+      "LSE_D": 9.602,
+      "LSE_C": 4.671,
+      "all_tracks": [
+        {
+          "LSE_D": 9.602,
+          "LSE_C": 4.671
+        },
+        {
+          "LSE_D": 15.542,
+          "LSE_C": 0.333
+        }
+      ]
+    },
+    {
+      "name": "eval_technical_1",
+      "avatar_type": "technical",
+      "question": "데이터베이스 인덱싱 성능을 어떻게 개선하시겠어요?",
+      "LSE_D": 8.469,
+      "LSE_C": 5.083,
+      "all_tracks": [
+        {
+          "LSE_D": 8.469,
+          "LSE_C": 5.083
+        },
+        {
+          "LSE_D": 14.37,
+          "LSE_C": 0.603
+        }
+      ]
+    },
+    {
+      "name": "eval_technical_2",
+      "avatar_type": "technical",
+      "question": "야근이 발생했을 때 어떻게 대처하시나요?",
+      "LSE_D": 9.705,
+      "LSE_C": 4.183,
+      "all_tracks": [
+        {
+          "LSE_D": 9.705,
+          "LSE_C": 4.183
+        },
+        {
+          "LSE_D": 14.145,
+          "LSE_C": 0.63
+        }
+      ]
+    },
+    {
+      "name": "eval_personality_3",
+      "avatar_type": "personality",
+      "question": "동료와 의견 충돌이 발생했을 때 어떻게 해결하시나요?",
+      "LSE_D": 9.157,
+      "LSE_C": 4.211,
+      "all_tracks": [
+        {
+          "LSE_D": 15.642,
+          "LSE_C": 0.441
+        },
+        {
+          "LSE_D": 9.157,
+          "LSE_C": 4.211
+        }
+      ]
+    },
+    {
+      "name": "eval_personality_4",
+      "avatar_type": "personality",
+      "question": "자신의 장점과 단점을 각각 말씀해 주세요.",
+      "LSE_D": 8.431,
+      "LSE_C": 5.271,
+      "all_tracks": [
+        {
+          "LSE_D": 16.48,
+          "LSE_C": 0.228
+        },
+        {
+          "LSE_D": 8.431,
+          "LSE_C": 5.271
+        }
+      ]
+    }
+  ]
+}

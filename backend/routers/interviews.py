@@ -273,19 +273,38 @@ async def avatar_video_stream(payload: dict = Body(...)):
                     )
 
                 first_chunk_logged = False
-                async with client.stream(
-                    "POST",
-                    duo_stream_url,
-                    json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
-                ) as response:
-                    async for chunk in response.aiter_bytes():
-                        if not first_chunk_logged:
+                try:
+                    async with client.stream(
+                        "POST",
+                        duo_stream_url,
+                        json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
+                    ) as response:
+                        if response.status_code != 200:
+                            error_body = await response.aread()
                             print(
-                                f"[stream-timing] 문장{i + 1} 코랩 첫 청크 수신: {time.time() - t0:.2f}초",
+                                f"[stream-timing] 문장{i + 1} 코랩 서버 응답 오류 "
+                                f"(status={response.status_code}): {error_body[:200]!r}",
                                 flush=True,
                             )
-                            first_chunk_logged = True
-                        yield chunk
+                            # 코랩 서버(혹은 ngrok 터널)가 꺼져있으면 연결 자체는 되고
+                            # ngrok의 에러 페이지(HTML)가 정상 응답으로 돌아오는 경우가 있습니다.
+                            # 이 바이트를 영상인 것처럼 그대로 흘려보내면 프런트에서 MediaSource
+                            # 디먹서 오류로 깨지므로, 여기서 스트림을 끊어 빈 스트림으로 끝냅니다.
+                            return
+                        async for chunk in response.aiter_bytes():
+                            if not first_chunk_logged:
+                                print(
+                                    f"[stream-timing] 문장{i + 1} 코랩 첫 청크 수신: {time.time() - t0:.2f}초",
+                                    flush=True,
+                                )
+                                first_chunk_logged = True
+                            yield chunk
+                except httpx.HTTPError as error:
+                    print(
+                        f"[stream-timing] 문장{i + 1} 코랩 서버 연결 실패: {error}",
+                        flush=True,
+                    )
+                    return
 
     return StreamingResponse(proxy_stream(), media_type="video/mp4")
 
