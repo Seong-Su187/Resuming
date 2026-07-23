@@ -1774,7 +1774,8 @@ function Interview() {
                     // 립싱크 영상이 실제로 시작될 때 표시할 질문 저장
                     pendingInterviewerMessageRef.current = {
                         playbackId,
-                        text: data.question_text,
+                        reactionText: data.reaction_text || '',
+                        questionText: data.question_text,
                         name: getInterviewerName(
                             data.interviewer_type,
                             data.avatar,
@@ -1784,7 +1785,7 @@ function Interview() {
                     setIsInterviewerSpeaking(true);
 
                     playInterviewerVideoStream(
-                        data.question_text,
+                        data.full_audio_text || data.question_text,
                         data.avatar,
                         data.duo_avatar_type,
                     ).then((success) => {
@@ -1800,9 +1801,17 @@ function Interview() {
                                 pendingMessage &&
                                 pendingMessage.playbackId === playbackId
                             ) {
+                                if (pendingMessage.reactionText) {
+                                    addMessage(
+                                        'interviewer',
+                                        pendingMessage.reactionText,
+                                        pendingMessage.name,
+                                    );
+                                }
+
                                 addMessage(
                                     'interviewer',
-                                    pendingMessage.text,
+                                    pendingMessage.questionText,
                                     pendingMessage.name,
                                 );
 
@@ -3624,9 +3633,17 @@ function Interview() {
                                 pendingMessage.playbackId ===
                                 interviewerPlaybackIdRef.current
                             ) {
+                                if (pendingMessage.reactionText) {
+                                    addMessage(
+                                        'interviewer',
+                                        pendingMessage.reactionText,
+                                        pendingMessage.name,
+                                    );
+                                }
+
                                 addMessage(
                                     'interviewer',
-                                    pendingMessage.text,
+                                    pendingMessage.questionText,
                                     pendingMessage.name,
                                 );
 
