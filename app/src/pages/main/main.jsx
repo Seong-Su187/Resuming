@@ -184,6 +184,7 @@ function Main({ mainVideoUrl }) {
     const navigate = useNavigate();
     const videoRef = useRef(null);
     const messageTimerRef = useRef([]);
+    const section2Ref = useRef(null);
 
     const [messageStep, setMessageStep] = useState(0);
     const [isFirstVisit] = useState(() => {
@@ -194,6 +195,8 @@ function Main({ mainVideoUrl }) {
     const [isInfoSliding, setIsInfoSliding] = useState(false);
     const [isVideoEnded, setIsVideoEnded] = useState(false);
     const [isScrolled, setIsScrolled] = useState(false);
+    const [isFaqVisible, setIsFaqVisible] = useState(false);
+    const [faqAnimationCycle, setFaqAnimationCycle] = useState(0);
 
     useEffect(() => {
         if (isFirstVisit) {
@@ -288,6 +291,45 @@ function Main({ mainVideoUrl }) {
             mainPage.removeEventListener('scroll', handleScroll);
         };
     }, []);
+
+    useEffect(() => {
+        const section2 = section2Ref.current;
+        const mainPage = document.querySelector('.main-page');
+
+        if (!section2 || !mainPage) {
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsFaqVisible(entry.intersectionRatio >= 0.35);
+            },
+            {
+                root: mainPage,
+                threshold: 0.35,
+            },
+        );
+
+        observer.observe(section2);
+
+        return () => {
+            observer.disconnect();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isFaqVisible) {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            setFaqAnimationCycle((prev) => prev + 1);
+        }, 9200);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [isFaqVisible]);
 
     const handleVideoEnded = () => {
         setTimeout(() => {
@@ -589,7 +631,10 @@ function Main({ mainVideoUrl }) {
                 </div>
             </section>
 
-            <section className="main-card section2">
+            <section
+                ref={section2Ref}
+                className={`main-card section2 ${isFaqVisible ? 'faq-visible' : ''}`}
+            >
                 <div className="main-faq-background" aria-hidden="true" />
 
                 <div className="main-faq-container">
@@ -597,41 +642,62 @@ function Main({ mainVideoUrl }) {
                         <h2>궁금한 내용을 확인해 보세요</h2>
                     </div>
 
-                    <div className="main-faq-groups">
-                        {faqGroups.map((group, groupIndex) => (
-                            <article
-                                key={group.title}
-                                className="main-faq-group"
-                                style={{
-                                    '--faq-delay': `${groupIndex * 0.08}s`,
-                                }}
-                            >
-                                <h3 className="main-faq-group-title">
-                                    {group.title}
-                                </h3>
+                    <div
+                        key={faqAnimationCycle}
+                        className="main-faq-groups"
+                    >
+                        {faqGroups.map((group, groupIndex) => {
+                            return (
+                                <article
+                                    key={group.title}
+                                    className="main-faq-group"
+                                    style={{
+                                        '--faq-delay': `${groupIndex * 0.08}s`,
+                                    }}
+                                >
+                                    <h3 className="main-faq-group-title">
+                                        {group.title}
+                                    </h3>
 
-                                <div className="main-faq-list">
-                                    {group.items.map((item, itemIndex) => (
-                                        <div
-                                            key={item.question}
-                                            className="main-faq-item"
-                                        >
-                                            <div className="main-faq-question">
-                                                <span className="main-faq-mark">Q</span>
+                                    <div className="main-faq-list">
+                                        {group.items.map((item, itemIndex) => (
+                                            <div
+                                                key={item.question}
+                                                className="main-faq-item"
+                                            >
+                                                <div
+                                                    className="main-faq-question main-faq-message"
+                                                    style={{
+                                                        '--message-delay':
+                                                            `${itemIndex * 1.25}s`,
+                                                    }}
+                                                >
+                                                    <span className="main-faq-mark">
+                                                        Q
+                                                    </span>
 
-                                                <p>{item.question}</p>
+                                                    <p>{item.question}</p>
+                                                </div>
+
+                                                <div
+                                                    className="main-faq-answer main-faq-message"
+                                                    style={{
+                                                        '--message-delay':
+                                                            `${itemIndex * 1.25 + 0.55}s`,
+                                                    }}
+                                                >
+                                                    <span className="main-faq-mark">
+                                                        A
+                                                    </span>
+
+                                                    <p>{item.answer}</p>
+                                                </div>
                                             </div>
-
-                                            <div className="main-faq-answer">
-                                                <span className="main-faq-mark">A</span>
-
-                                                <p>{item.answer}</p>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            </article>
-                        ))}
+                                        ))}
+                                    </div>
+                                </article>
+                            );
+                        })}
                     </div>
                 </div>
             </section>

@@ -940,21 +940,20 @@
     min-height: 0;
     padding: 18px 6px 10px;
 
+    overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
+
+    /* Firefox */
+    scrollbar-width: none;
+
+    /* IE, 구형 Edge */
+    -ms-overflow-style: none;
 }
 
+/* Chrome, Edge, Safari */
 .main-faq-list::-webkit-scrollbar {
-    width: 5px;
-}
-
-.main-faq-list::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.main-faq-list::-webkit-scrollbar-thumb {
-    border-radius: 999px;
-    background: rgba(93, 143, 120, 0.35);
+    display: none;
 }
 
 .main-faq-item {
@@ -983,9 +982,9 @@
         box-shadow 0.2s ease;
 }
 
-.main-faq-question:hover,
-.main-faq-answer:hover {
-    transform: translateY(-2px);
+.main-faq-group:hover .main-faq-question:hover,
+.main-faq-group:hover .main-faq-answer:hover {
+    transform: translateY(-2px) scale(1);
 }
 
 /* 왼쪽 질문 말풍선 */
@@ -1134,4 +1133,84 @@
     .main-faq-answer p {
         font-size: 13px;
     }
+}
+
+/* =========================================================
+   FAQ 메시지 순차 등장
+========================================================= */
+
+.main-faq-message {
+    opacity: 0;
+    visibility: hidden;
+
+    filter: blur(3px);
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+/* 질문은 왼쪽 아래에서 등장 */
+.main-faq-question.main-faq-message {
+    transform: translate(-18px, 12px) scale(0.96);
+}
+
+/* 답변은 오른쪽 아래에서 등장 */
+.main-faq-answer.main-faq-message {
+    transform: translate(18px, 12px) scale(0.96);
+}
+
+/* section2가 화면에 들어온 뒤 메시지 재생 */
+.section2.faq-visible .main-faq-message {
+    animation:
+        mainFaqMessageAppear 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+
+    animation-delay:
+        calc(var(--faq-delay) + var(--message-delay));
+}
+
+@keyframes mainFaqMessageAppear {
+    from {
+        opacity: 0;
+        visibility: hidden;
+
+        filter: blur(3px);
+    }
+
+    to {
+        opacity: 1;
+        visibility: visible;
+
+        transform: translate(0, 0) scale(1);
+        filter: blur(0);
+    }
+}
+
+/* 패널에 마우스를 올리면 남은 채팅 즉시 공개 */
+.main-faq-group:hover .main-faq-message {
+    opacity: 1;
+    visibility: visible;
+
+    transform: translate(0, 0) scale(1);
+    filter: blur(0);
+
+    animation-delay: 0s;
+    animation-duration: 0.15s;
+}
+
+.section2:not(.faq-visible) .main-faq-message {
+    opacity: 0;
+    visibility: hidden;
+
+    filter: blur(3px);
+
+    animation: none;
+}
+
+.section2:not(.faq-visible) .main-faq-question.main-faq-message {
+    transform: translate(-18px, 12px) scale(0.96);
+}
+
+.section2:not(.faq-visible) .main-faq-answer.main-faq-message {
+    transform: translate(18px, 12px) scale(0.96);
 }
