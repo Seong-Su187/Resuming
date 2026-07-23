@@ -199,9 +199,7 @@ function Interview() {
     const [cameraUsageEnabled, setCameraUsageEnabled] = useState(false);
 
     const [answerMode, setAnswerMode] = useState('voice');
-    const [interviewMode, setInterviewMode] = useState(() => {
-        return localStorage.getItem('interviewMode') || 'user';
-    });
+    const [interviewMode, setInterviewMode] = useState('user');
     const interviewModeRef = useRef(
         localStorage.getItem('interviewMode') || 'user',
     );
@@ -3404,6 +3402,7 @@ function Interview() {
             )}
 
             <div className="temporary-mode-panel">
+                {/*
                 <div className="temporary-mode-row">
                     <span>답변 모드</span>
 
@@ -3427,6 +3426,7 @@ function Interview() {
                         </button>
                     </div>
                 </div>
+                */}
 
                 <div className="temporary-mode-row">
                     <span>진행 모드</span>
@@ -3529,6 +3529,19 @@ function Interview() {
                             </span>
                         </div>
                     )}
+
+                    <div
+                        className={`calibration-target-box ${calibrationPhase.startsWith('tech')
+                            ? 'calibration-target-hr'
+                            : 'calibration-target-tech'
+                            }`}
+                    >
+                        <span>
+                            {calibrationPhase.startsWith('tech')
+                                ? '인사 면접관의 눈을 바라보세요'
+                                : '기술 면접관의 눈을 바라보세요'}
+                        </span>
+                    </div>
 
                     <video
                         ref={interviewerStreamVideoRef}
