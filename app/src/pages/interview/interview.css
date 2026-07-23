@@ -6,6 +6,262 @@
     overflow: hidden;
 }
 
+/* ========================================
+   버튼 위 처리 상태 안내 박스
+======================================== */
+
+.process-status-box {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    gap: 16px;
+
+    width: 100%;
+    min-height: 86px;
+    padding: 18px 20px;
+    box-sizing: border-box;
+    overflow: hidden;
+
+    border: 1px solid rgba(141, 116, 255, 0.42);
+    border-radius: 16px;
+
+    color: #ffffff;
+
+    background:
+        linear-gradient(135deg,
+            rgba(20, 24, 36, 0.92),
+            rgba(13, 17, 27, 0.88));
+
+    box-shadow:
+        0 14px 38px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+
+    backdrop-filter: blur(14px);
+
+    animation: processStatusAppear 0.3s ease-out both;
+}
+
+/* 박스 위를 지나가는 은은한 빛 */
+.process-status-box::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -50%;
+
+    width: 35%;
+    height: 100%;
+
+    background:
+        linear-gradient(90deg,
+            transparent,
+            rgba(255, 255, 255, 0.08),
+            transparent);
+
+    transform: skewX(-18deg);
+
+    animation: processStatusShine 2.3s ease-in-out infinite;
+}
+
+.process-status-box.recording {
+    border-color: rgba(239, 71, 111, 0.52);
+
+    box-shadow:
+        0 14px 38px rgba(0, 0, 0, 0.28),
+        0 0 28px rgba(239, 71, 111, 0.1),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.process-status-icon {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 52px;
+
+    width: 52px;
+    height: 52px;
+
+    border-radius: 50%;
+
+    font-size: 23px;
+
+    background: rgba(116, 87, 245, 0.16);
+    box-shadow: 0 0 0 7px rgba(116, 87, 245, 0.07);
+}
+
+.process-status-box.recording .process-status-icon {
+    background: rgba(239, 71, 111, 0.16);
+
+    box-shadow:
+        0 0 0 7px rgba(239, 71, 111, 0.07),
+        0 0 24px rgba(239, 71, 111, 0.16);
+
+    animation: processStatusRecordingPulse 1.2s ease-in-out infinite;
+}
+
+.process-status-spinner {
+    width: 25px;
+    height: 25px;
+
+    box-sizing: border-box;
+    border: 3px solid rgba(255, 255, 255, 0.18);
+    border-top-color: #9b86ff;
+    border-radius: 50%;
+
+    animation: processStatusSpinner 0.85s linear infinite;
+}
+
+.process-status-record-dot {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+
+    width: 10px;
+    height: 10px;
+
+    border: 3px solid rgba(15, 19, 29, 0.95);
+    border-radius: 50%;
+
+    background: #ff4242;
+    box-shadow: 0 0 10px rgba(255, 66, 66, 0.85);
+
+    animation: processStatusRecordBlink 1s ease-in-out infinite;
+}
+
+.process-status-content {
+    flex: 1;
+    min-width: 0;
+}
+
+.process-status-content strong {
+    display: block;
+    margin-bottom: 6px;
+
+    font-size: 15px;
+    font-weight: 800;
+}
+
+.process-status-content p {
+    margin: 0;
+
+    color: rgba(255, 255, 255, 0.65);
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: keep-all;
+}
+
+.process-status-dots {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 5px;
+
+    margin-left: 4px;
+}
+
+.process-status-dots span {
+    width: 6px;
+    height: 6px;
+
+    border-radius: 50%;
+
+    background: rgba(255, 255, 255, 0.68);
+
+    animation: processStatusDot 1.2s ease-in-out infinite;
+}
+
+.process-status-dots span:nth-child(2) {
+    animation-delay: 0.15s;
+}
+
+.process-status-dots span:nth-child(3) {
+    animation-delay: 0.3s;
+}
+
+@keyframes processStatusAppear {
+    from {
+        opacity: 0;
+        transform: translateY(8px) scale(0.98);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes processStatusShine {
+    0% {
+        left: -50%;
+    }
+
+    55%,
+    100% {
+        left: 120%;
+    }
+}
+
+@keyframes processStatusSpinner {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes processStatusRecordingPulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.06);
+    }
+}
+
+@keyframes processStatusRecordBlink {
+
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+
+    50% {
+        opacity: 0.4;
+        transform: scale(0.78);
+    }
+}
+
+@keyframes processStatusDot {
+
+    0%,
+    60%,
+    100% {
+        opacity: 0.3;
+        transform: translateY(0);
+    }
+
+    30% {
+        opacity: 1;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+
+    .process-status-box,
+    .process-status-box::before,
+    .process-status-icon,
+    .process-status-spinner,
+    .process-status-record-dot,
+    .process-status-dots span {
+        animation: none;
+    }
+}
+
 /* 왼쪽은 남은 공간을 전부 사용 */
 .interview-left {
     position: relative;

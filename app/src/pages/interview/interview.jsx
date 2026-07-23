@@ -200,9 +200,7 @@ function Interview() {
 
     const [answerMode, setAnswerMode] = useState('voice');
     const [interviewMode, setInterviewMode] = useState('user');
-    const interviewModeRef = useRef(
-        localStorage.getItem('interviewMode') || 'user',
-    );
+    const interviewModeRef = useRef('user');
     const [answerText, setAnswerText] = useState('');
 
     const [isBaselineRecording, setIsBaselineRecording] = useState(false);
@@ -226,7 +224,6 @@ function Interview() {
             return;
         }
 
-        localStorage.setItem('interviewMode', mode);
         interviewModeRef.current = mode;
         setInterviewMode(mode);
     };
@@ -284,6 +281,86 @@ function Interview() {
 
     const isUserTurnActive =
         isRecordingAnswer || isStartingAnswerRecording;
+
+    const processStatus = (() => {
+        if (step === 'record') {
+            if (isBaselineChecking) {
+                return {
+                    type: 'processing',
+                    title: '기존 음성 정보를 확인하고 있습니다.',
+                    description: '등록된 기본 음성 데이터가 있는지 확인하고 있습니다.',
+                };
+            }
+
+            if (isBaselineRecording) {
+                return {
+                    type: 'recording',
+                    title: '기본 음성을 녹음하고 있습니다.',
+                    description: `가이드 문장을 읽어주세요. ${baselineSeconds}초 녹음 중입니다.`,
+                };
+            }
+
+            if (isBaselineSaving) {
+                return {
+                    type: 'processing',
+                    title: '기본 음성을 분석하고 있습니다.',
+                    description: '말하기 속도와 음성 특성을 측정하고 있습니다.',
+                };
+            }
+
+            return null;
+        }
+
+        if (step === 'resume') {
+            if (isResumeChecking) {
+                return {
+                    type: 'processing',
+                    title: '기존 이력서를 확인하고 있습니다.',
+                    description: '등록된 이력서가 있는지 확인하고 있습니다.',
+                };
+            }
+
+            if (isResumeUploading) {
+                return {
+                    type: 'processing',
+                    title: '이력서를 분석하고 있습니다.',
+                    description: '이력서 내용을 바탕으로 면접 질문을 생성하고 있습니다.',
+                };
+            }
+
+            return null;
+        }
+
+        if (step === 'answer') {
+            if (isStartingAnswerRecording) {
+                return {
+                    type: 'processing',
+                    title: '마이크를 연결하고 있습니다.',
+                    description: '잠시 후 답변 녹음이 시작됩니다.',
+                };
+            }
+
+            if (isRecordingAnswer) {
+                return {
+                    type: 'recording',
+                    title: '답변을 녹음하고 있습니다.',
+                    description: '답변을 모두 말씀한 후 녹음 종료 버튼을 눌러주세요.',
+                };
+            }
+
+            if (isProcessingAnswer) {
+                return {
+                    type: 'processing',
+                    title: '답변 음성을 분석하고 있습니다.',
+                    description: '음성 인식과 답변 평가를 진행하고 있습니다.',
+                };
+            }
+
+            return null;
+        }
+
+        return null;
+    })();
 
     const addMessage = (type, text, name = '') => {
         setMessages((prev) => [
@@ -3530,19 +3607,6 @@ function Interview() {
                         </div>
                     )}
 
-                    <div
-                        className={`calibration-target-box ${calibrationPhase.startsWith('tech')
-                            ? 'calibration-target-hr'
-                            : 'calibration-target-tech'
-                            }`}
-                    >
-                        <span>
-                            {calibrationPhase.startsWith('tech')
-                                ? '인사 면접관의 눈을 바라보세요'
-                                : '기술 면접관의 눈을 바라보세요'}
-                        </span>
-                    </div>
-
                     <video
                         ref={interviewerStreamVideoRef}
                         className={`interviewer-avatar-video interviewer-stream-video ${isInterviewerStreamVisible ? 'visible' : ''
@@ -3688,46 +3752,66 @@ function Interview() {
                         </div>
                     )}
 
-                    {step === 'answer' && answerMode === 'voice' && (
-                        <div className="answer-recording-box">
-                            <div
-                                className={`answer-recording-icon ${isRecordingAnswer
-                                    ? 'recording'
-                                    : ''
-                                    }`}
-                            >
-                                🎙
+                    {processStatus && (
+                        <div
+                            className={`process-status-box ${processStatus.type}`}
+                            role="status"
+                            aria-live="polite"
+                        >
+                            <div className="process-status-icon">
+                                {processStatus.type === 'processing' ? (
+                                    <span className="process-status-spinner" />
+                                ) : (
+                                    <>
+                                        <span className="process-status-record-dot" />
+                                        <span>🎙</span>
+                                    </>
+                                )}
                             </div>
 
-                            <div>
-                                <strong>
-                                    {isRecordingAnswer
-                                        ? '답변을 녹음하고 있습니다.'
-                                        : isProcessingAnswer
-                                            ? '답변 음성을 분석하고 있습니다.'
-                                            : isStartingAnswerRecording
-                                                ? '마이크를 연결하고 있습니다.'
-                                                : isCandidateSpeaking
-                                                    ? `${activeCandidateAnswer?.name} 지원자가 답변하고 있습니다.`
-                                                    : hasUserAnsweredCurrentQuestion
-                                                        ? '현재 질문에 대한 답변을 완료했습니다.'
-                                                        : '지금 답변을 시작할 수 있습니다.'}
-                                </strong>
+                            <div className="process-status-content">
+                                <strong>{processStatus.title}</strong>
+                                <p>{processStatus.description}</p>
+                            </div>
 
-                                <p>
-                                    {isRecordingAnswer
-                                        ? '답변을 모두 말씀한 후 답변 녹음 종료 버튼을 눌러주세요.'
-                                        : isProcessingAnswer
-                                            ? '분석이 끝나면 다른 지원자의 답변 대기가 다시 시작됩니다.'
-                                            : isCandidateSpeaking
-                                                ? '다른 지원자의 답변이 끝나면 녹음할 수 있습니다.'
-                                                : hasUserAnsweredCurrentQuestion
-                                                    ? '다른 지원자들의 답변이 끝나면 다음 질문으로 넘어갑니다.'
-                                                    : '5~10초 후 다른 지원자가 답변할 수 있으므로 먼저 답하려면 녹음 버튼을 눌러주세요.'}
-                                </p>
+                            <div
+                                className="process-status-dots"
+                                aria-hidden="true"
+                            >
+                                <span />
+                                <span />
+                                <span />
                             </div>
                         </div>
                     )}
+
+                    {step === 'answer' &&
+                        answerMode === 'voice' &&
+                        !processStatus && (
+                            <div className="answer-recording-box">
+                                <div className="answer-recording-icon">
+                                    🎙
+                                </div>
+
+                                <div>
+                                    <strong>
+                                        {isCandidateSpeaking
+                                            ? `${activeCandidateAnswer?.name} 지원자가 답변하고 있습니다.`
+                                            : hasUserAnsweredCurrentQuestion
+                                                ? '현재 질문에 대한 답변을 완료했습니다.'
+                                                : '지금 답변을 시작할 수 있습니다.'}
+                                    </strong>
+
+                                    <p>
+                                        {isCandidateSpeaking
+                                            ? '다른 지원자의 답변이 끝나면 녹음할 수 있습니다.'
+                                            : hasUserAnsweredCurrentQuestion
+                                                ? '다른 지원자들의 답변이 끝나면 다음 질문으로 넘어갑니다.'
+                                                : '5~10초 후 다른 지원자가 답변할 수 있으므로 먼저 답하려면 녹음 버튼을 눌러주세요.'}
+                                    </p>
+                                </div>
+                            </div>
+                        )}
 
                     {step === 'answer' && answerMode === 'text' && (
                         <div className="answer-recording-box text-mode-guide">
