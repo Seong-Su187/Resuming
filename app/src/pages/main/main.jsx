@@ -4,6 +4,164 @@ import { UserIcon } from '../../components/icons';
 import '../../index.css';
 import './main.css';
 
+const faqGroups = [
+    {
+        title: '회원가입 및 로그인',
+        items: [
+            {
+                question: '회원가입을 해야 면접을 진행할 수 있나요?',
+                answer:
+                    '네. 면접 기록과 분석 결과를 저장하고 관리하기 위해 회원가입과 로그인이 필요합니다.',
+            },
+            {
+                question: '회원가입은 어떻게 하나요?',
+                answer:
+                    '회원가입 화면에서 이름, 이메일, 비밀번호를 입력하면 계정을 생성할 수 있습니다.',
+            },
+            {
+                question: '이미 가입한 이메일로 다시 회원가입할 수 있나요?',
+                answer:
+                    '아니요. 이미 등록된 이메일은 중복으로 사용할 수 없습니다. 기존 계정으로 로그인해 주세요.',
+            },
+            {
+                question: '로그인하지 않고 서비스를 이용할 수 있나요?',
+                answer:
+                    '서비스 소개는 확인할 수 있지만, 면접 진행과 결과 저장을 위해서는 로그인이 필요합니다.',
+            },
+            {
+                question: '회원 정보와 면접 기록은 어디에서 확인할 수 있나요?',
+                answer:
+                    '로그인 후 마이페이지에서 이전 면접 기록과 분석 결과를 확인할 수 있습니다.',
+            },
+        ],
+    },
+    {
+        title: '서비스 및 면접 준비',
+        items: [
+            {
+                question: '로그아웃하면 면접 기록이 삭제되나요?',
+                answer:
+                    '아니요. 동일한 계정으로 다시 로그인하면 기존 기록을 확인할 수 있습니다.',
+            },
+            {
+                question: 'Resuming은 어떤 서비스인가요?',
+                answer:
+                    '답변 내용과 음성, 시선 습관을 분석해 주는 AI 모의면접 서비스입니다.',
+            },
+            {
+                question: '면접은 어떤 방식으로 진행되나요?',
+                answer:
+                    '이력서를 기반으로 생성된 5개의 질문에 음성으로 답변하는 방식으로 진행됩니다.',
+            },
+            {
+                question: '질문은 매번 동일하게 나오나요?',
+                answer:
+                    '아니요. 이력서의 경력, 프로젝트, 기술 스택에 따라 맞춤형 질문이 생성됩니다.',
+            },
+            {
+                question: '이력서를 반드시 등록해야 하나요?',
+                answer:
+                    '최초 면접 시 등록이 필요하며, 이후에는 기존 이력서를 다시 사용할 수 있습니다.',
+            },
+        ],
+    },
+    {
+        title: '질문 및 답변 평가',
+        items: [
+            {
+                question: '어떤 형식의 이력서를 등록할 수 있나요?',
+                answer:
+                    '현재 PDF 형식의 이력서를 지원합니다.',
+            },
+            {
+                question: '면접관은 어떤 역할을 하나요?',
+                answer:
+                    '기술 면접관은 프로젝트와 기술 경험을, 인사 면접관은 협업과 지원 동기를 질문합니다.',
+            },
+            {
+                question: '답변 평가는 어떤 기준으로 이루어지나요?',
+                answer:
+                    '질문 의도, 상황, 역할, 행동, 결과와 회고 내용을 종합적으로 평가합니다.',
+            },
+            {
+                question: 'STAR 방식이 무엇인가요?',
+                answer:
+                    '상황, 과제, 행동, 결과의 순서로 경험을 구체적으로 전달하는 답변 방식입니다.',
+            },
+            {
+                question: '음성 분석에서는 어떤 항목을 확인하나요?',
+                answer:
+                    '목소리 높낮이, 음량, 말하기 속도, 습관어와 필러 표현을 확인합니다.',
+            },
+        ],
+    },
+    {
+        title: '음성 및 시선 분석',
+        items: [
+            {
+                question: '습관어와 필러는 무엇인가요?',
+                answer:
+                    '필러는 “음”, “어” 같은 채움 표현이며, 습관어는 반복적으로 사용하는 표현입니다.',
+            },
+            {
+                question: '시선 이탈은 어떻게 측정하나요?',
+                answer:
+                    '등록한 면접관 응시 위치를 기준으로 답변 중 시선이 벗어난 횟수를 기록합니다.',
+            },
+            {
+                question: '웹캠을 반드시 사용해야 하나요?',
+                answer:
+                    '시선 분석을 이용하려면 웹캠이 필요합니다.',
+            },
+            {
+                question: '마이크를 반드시 사용해야 하나요?',
+                answer:
+                    '음성 답변과 분석을 위해 마이크 사용이 필요합니다.',
+            },
+            {
+                question: '답변 도중 다시 말할 수 있나요?',
+                answer:
+                    '아니요. 실제 면접처럼 녹음을 종료하면 답변이 즉시 제출되며 다시 녹음할 수 없습니다.',
+            },
+        ],
+    },
+    {
+        title: '면접 결과 및 이용 환경',
+        items: [
+            {
+                question: '면접 결과에서는 무엇을 확인할 수 있나요?',
+                answer:
+                    '답변 점수, AI 피드백, 음성 분석, 습관어와 시선 이탈 결과를 확인할 수 있습니다.',
+            },
+            {
+                question: '이전 면접 결과도 다시 볼 수 있나요?',
+                answer:
+                    '마이페이지에서 이전 면접 기록과 질문별 결과를 확인할 수 있습니다.',
+            },
+            {
+                question: '면접 결과를 PDF로 저장할 수 있나요?',
+                answer:
+                    '면접 결과 페이지에서 주요 분석 결과를 PDF로 저장할 수 있습니다.',
+            },
+            {
+                question: '실제 채용 결과를 보장하나요?',
+                answer:
+                    '아니요. 평가 결과는 면접 연습과 답변 개선을 위한 참고 자료입니다.',
+            },
+            {
+                question: '분석 결과가 정확하지 않을 수도 있나요?',
+                answer:
+                    '소음, 마이크, 웹캠, 조명과 네트워크 환경에 따라 결과에 차이가 발생할 수 있습니다.',
+            },
+            {
+                question: '어떤 환경에서 이용하는 것이 좋나요?',
+                answer:
+                    '최신 Chrome 또는 Edge와 조용하고 밝은 환경에서 이용하는 것을 권장합니다.',
+            },
+        ],
+    },
+];
+
 function Main({ mainVideoUrl }) {
     const infoSlides = [
         {
@@ -26,6 +184,8 @@ function Main({ mainVideoUrl }) {
     const navigate = useNavigate();
     const videoRef = useRef(null);
     const messageTimerRef = useRef([]);
+    const section2Ref = useRef(null);
+
     const [messageStep, setMessageStep] = useState(0);
     const [isFirstVisit] = useState(() => {
         return sessionStorage.getItem('mainVideoPlayed') !== 'true';
@@ -34,6 +194,9 @@ function Main({ mainVideoUrl }) {
     const [nextInfoIndex, setNextInfoIndex] = useState(null);
     const [isInfoSliding, setIsInfoSliding] = useState(false);
     const [isVideoEnded, setIsVideoEnded] = useState(false);
+    const [isScrolled, setIsScrolled] = useState(false);
+    const [isFaqVisible, setIsFaqVisible] = useState(false);
+    const [faqAnimationCycle, setFaqAnimationCycle] = useState(0);
 
     useEffect(() => {
         if (isFirstVisit) {
@@ -111,6 +274,63 @@ function Main({ mainVideoUrl }) {
         isInfoSliding,
     ]);
 
+    useEffect(() => {
+        const mainPage = document.querySelector('.main-page');
+
+        if (!mainPage) {
+            return;
+        }
+
+        const handleScroll = () => {
+            setIsScrolled(mainPage.scrollTop >= window.innerHeight * 0.5);
+        };
+
+        mainPage.addEventListener('scroll', handleScroll);
+
+        return () => {
+            mainPage.removeEventListener('scroll', handleScroll);
+        };
+    }, []);
+
+    useEffect(() => {
+        const section2 = section2Ref.current;
+        const mainPage = document.querySelector('.main-page');
+
+        if (!section2 || !mainPage) {
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsFaqVisible(entry.intersectionRatio >= 0.35);
+            },
+            {
+                root: mainPage,
+                threshold: 0.35,
+            },
+        );
+
+        observer.observe(section2);
+
+        return () => {
+            observer.disconnect();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isFaqVisible) {
+            return;
+        }
+
+        const interval = setInterval(() => {
+            setFaqAnimationCycle((prev) => prev + 1);
+        }, 9200);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [isFaqVisible]);
+
     const handleVideoEnded = () => {
         setTimeout(() => {
             setIsVideoEnded(true);
@@ -174,7 +394,10 @@ function Main({ mainVideoUrl }) {
     return (
         <main className="main-page">
 
-            <nav className="user-floating-menu" aria-label="사용자 메뉴">
+            <nav
+                className={`user-floating-menu ${isScrolled ? 'scrolled' : ''}`}
+                aria-label="사용자 메뉴"
+            >
                 <button
                     type="button"
                     className="user-floating-trigger"
@@ -408,7 +631,75 @@ function Main({ mainVideoUrl }) {
                 </div>
             </section>
 
-            <section className="main-card section2">
+            <section
+                ref={section2Ref}
+                className={`main-card section2 ${isFaqVisible ? 'faq-visible' : ''}`}
+            >
+                <div className="main-faq-background" aria-hidden="true" />
+
+                <div className="main-faq-container">
+                    <div className="main-faq-heading">
+                        <h2>궁금한 내용을 확인해 보세요</h2>
+                    </div>
+
+                    <div
+                        key={faqAnimationCycle}
+                        className="main-faq-groups"
+                    >
+                        {faqGroups.map((group, groupIndex) => {
+                            return (
+                                <article
+                                    key={group.title}
+                                    className="main-faq-group"
+                                    style={{
+                                        '--faq-delay': `${groupIndex * 0.08}s`,
+                                    }}
+                                >
+                                    <h3 className="main-faq-group-title">
+                                        {group.title}
+                                    </h3>
+
+                                    <div className="main-faq-list">
+                                        {group.items.map((item, itemIndex) => (
+                                            <div
+                                                key={item.question}
+                                                className="main-faq-item"
+                                            >
+                                                <div
+                                                    className="main-faq-question main-faq-message"
+                                                    style={{
+                                                        '--message-delay':
+                                                            `${itemIndex * 1.25}s`,
+                                                    }}
+                                                >
+                                                    <span className="main-faq-mark">
+                                                        Q
+                                                    </span>
+
+                                                    <p>{item.question}</p>
+                                                </div>
+
+                                                <div
+                                                    className="main-faq-answer main-faq-message"
+                                                    style={{
+                                                        '--message-delay':
+                                                            `${itemIndex * 1.25 + 0.55}s`,
+                                                    }}
+                                                >
+                                                    <span className="main-faq-mark">
+                                                        A
+                                                    </span>
+
+                                                    <p>{item.answer}</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </article>
+                            );
+                        })}
+                    </div>
+                </div>
             </section>
 
             <section className="main-card section3">

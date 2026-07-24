@@ -54,7 +54,7 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
             system_prompt = (
                 f"당신은 10년 차 '{job_category}' 인사 담당 면접관입니다.\n"
                 f"지원자의 이력서 중 다음 [검색된 정보]를 참고하여, '{intent}'에 관한 인성/HR 면접 질문 1개를 생성하세요.\n"
-                f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부'를 파악하는 데 집중하세요.\n"
+                f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부' 파악하는 데 집중하세요.\n"
                 f"이력서에 관련 내용이 부족하더라도 억지로 기술을 묻지 말고, 일반적이고 포괄적인 인성 면접 질문(예: 우리 회사에 지원한 구체적인 이유는 무엇인가요?)을 자연스럽게 생성하세요.\n"
                 "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
                 "{\n"
@@ -181,11 +181,9 @@ def preprocess_audio(input_path: str, output_path: str) -> bool:
             "-y",
             "-i", input_path,
 
-            # 단일 채널, 16kHz로 변환
             "-ac", "1",
             "-ar", "16000",
 
-            # 잡음 제거 및 무음 제거 및 음량 정규화
             "-af",
             (
                 "highpass=f=80,"
@@ -242,7 +240,6 @@ def has_meaningful_voice(
                 print("Voice Detection Error: mono WAV 파일이 아닙니다.")
                 return False
 
-            # 100ms 단위로 음량 검사
             chunk_size = max(1, int(frame_rate * 0.1))
 
             total_chunks = 0
@@ -287,11 +284,6 @@ def has_meaningful_voice(
 def process_audio_to_text(audio_file_path: str) -> str:
     """
     음성 전처리 후 OpenAI Whisper API로 STT를 수행
-
-    1. 기본 잡음 감소
-    2. 일정 크기 이상의 소리 존재 여부 확인
-    3. Whisper STT 수행
-    4. 확인된 환각 문구만 제거
     """
     processed_audio_path = None
 
@@ -337,7 +329,6 @@ def process_audio_to_text(audio_file_path: str) -> str:
             print("STT Skip: 전사 결과가 비어 있습니다.")
             return ""
 
-        # 공백, 특수문자, 대소문자를 무시하고 비교
         normalized_text = re.sub(
             r"[^a-zA-Z가-힣0-9]",
             "",
@@ -369,8 +360,6 @@ def process_audio_to_text(audio_file_path: str) -> str:
         cleaned_text = text
 
         for phrase in hallucination_phrases:
-            # 환각 문구는 공백과 특수문자를 제거한 형태이므로,
-            # 원문에서도 글자 사이의 공백과 특수문자를 허용해 찾아서 제거
             phrase_pattern = r"[\s\W_]*".join(
                 re.escape(char)
                 for char in phrase
@@ -383,7 +372,6 @@ def process_audio_to_text(audio_file_path: str) -> str:
                 flags=re.IGNORECASE,
             )
 
-        # 환각 문구 제거 후 불필요한 공백과 문장부호 정리
         cleaned_text = re.sub(r"\s+", " ", cleaned_text).strip()
         cleaned_text = cleaned_text.strip(".,!?~·- ")
 
@@ -415,7 +403,7 @@ def process_audio_to_text(audio_file_path: str) -> str:
                     f"Temporary File Delete Error: {str(e)}"
                 )
 
-# 아바타 캐릭터별 목소리 매핑 (20대: echo, 40대: onyx)
+
 AVATAR_VOICE_MAP = {
     "young": "echo",
     "middle_aged": "onyx",

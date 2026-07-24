@@ -9,6 +9,7 @@ import uuid
 import httpx
 import subprocess
 import random
+import logging
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse, StreamingResponse, Response
@@ -35,6 +36,9 @@ from llm import (
 
 # 🚀 성능 측정용 로거 임포트 추가
 from logger_config import log_execution_time, ExecutionTimer
+
+# 에러 로깅용 로거
+logger = logging.getLogger(__name__)
 
 def convert_audio_to_wav(
     input_path: str,
@@ -158,6 +162,7 @@ async def send_next_question(
     current_index: int,
     total_questions: int,
     selected_candidates: list[dict],
+    reaction_text: str = "", # 🚀 [추가] 이전 답변 리액션 텍스트 파라미터
 ):
     """
     질문 영상과 선택된 지원자들의 질문별 답변을 함께 전송합니다.
@@ -169,14 +174,17 @@ async def send_next_question(
     avatar = "middle_aged" if isinstance(question_data, str) else question_data.get("avatar", "middle_aged")
     voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
 
+    # 🚀 [수정] 아바타 음성 발화(TTS)를 위해 리액션과 질문을 합친 전체 텍스트
+    full_audio_text = f"{reaction_text} {question_text}" if reaction_text else question_text
+
     candidate_answers_task = asyncio.create_task(
         build_candidate_answers(
-            question_text,
+            question_text, # 지원자들은 리액션이 빠진 순수 질문 텍스트로 답변 생성
             selected_candidates,
         )
     )
     tts_fallback_task = asyncio.create_task(
-        _generate_tts_fallback_base64(question_text, voice)
+        _generate_tts_fallback_base64(full_audio_text, voice)
     )
 
     # 듀오 서버 테스트용 임시 매핑: 백엔드의 "hr" 타입 = 듀오 노트북의 "personality" 아바타
@@ -186,7 +194,9 @@ async def send_next_question(
         "type": "next_question",
         "current_index": current_index,
         "total_questions": total_questions,
-        "question_text": question_text,
+        "reaction_text": reaction_text,       # 🚀 [추가] 프론트엔드 말풍선 분리용 리액션 텍스트
+        "question_text": question_text,       # 🚀 [수정] 프론트엔드 말풍선 분리용 순수 질문 텍스트
+        "full_audio_text": full_audio_text,   # 🚀 [추가] 프론트엔드 TTS 스트리밍 요청용 전체 텍스트
         "interviewer_type": q_type,
         "avatar": avatar,
         "duo_avatar_type": duo_avatar_type,
@@ -430,6 +440,65 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
     return generated_questions
 
 
+@log_execution_time("GitHub 링크 탐색 및 내용 추출 (extract_github_content)")
+async def extract_github_content(text: str) -> str:
+    """
+    이력서 텍스트 내의 GitHub URL을 찾아 해당 프로필의 최근 레포지토리나
+    특정 레포지토리의 설명 및 README 데이터를 추출하여 문자열로 반환합니다.
+    """
+    # 1. 정규식으로 github.com URL 추출 (프로필 URL 또는 특정 레포 URL 모두 감지)
+    github_urls = re.findall(r"https?://(?:www\.)?github\.com/([a-zA-Z0-9-]+)(?:/([a-zA-Z0-9_.-]+))?", text)
+    
+    if not github_urls:
+        return ""
+        
+    combined_github_content = "\n\n[🚀 지원자 GitHub 프로젝트 및 활동 요약 (RAG Context)]\n"
+    
+    # 2. 비동기 HTTP 통신으로 GitHub API 호출
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # 중복 URL 방지를 위해 set 처리
+        for username, repo_name in set(github_urls):
+            try:
+                if repo_name:
+                    # [A] 특정 레포지토리 주소인 경우 (예: github.com/user/repo)
+                    api_url = f"https://api.github.com/repos/{username}/{repo_name}"
+                    repo_res = await client.get(api_url)
+                    
+                    if repo_res.status_code == 200:
+                        repo_data = repo_res.json()
+                        desc = repo_data.get("description", "설명 없음")
+                        combined_github_content += f"\n- 프로젝트명: {repo_name} (소유자: {username})\n- 프로젝트 설명: {desc}\n"
+                        
+                        # README 내용 가져오기 (Accept 헤더를 통해 마크다운 raw 텍스트로 바로 받기)
+                        readme_url = f"https://api.github.com/repos/{username}/{repo_name}/readme"
+                        readme_res = await client.get(readme_url, headers={"Accept": "application/vnd.github.v3.raw"})
+                        if readme_res.status_code == 200:
+                            # 너무 길면 RAG 토큰 낭비 방지를 위해 1000자 이내로 자름
+                            combined_github_content += f"- README 주요 내용: {readme_res.text[:1000]}...\n"
+                else:
+                    # [B] 유저 프로필 주소인 경우 (예: github.com/user) -> 최근 업데이트된 public 레포 최대 3개 탐색
+                    api_url = f"https://api.github.com/users/{username}/repos?sort=pushed&per_page=3"
+                    repos_res = await client.get(api_url)
+                    
+                    if repos_res.status_code == 200:
+                        repos = repos_res.json()
+                        for repo in repos:
+                            r_name = repo.get("name")
+                            r_desc = repo.get("description", "설명 없음")
+                            combined_github_content += f"\n- 프로젝트명: {r_name}\n- 프로젝트 설명: {r_desc}\n"
+                            
+                            # 각 레포의 README 시도
+                            readme_url = f"https://api.github.com/repos/{username}/{r_name}/readme"
+                            readme_res = await client.get(readme_url, headers={"Accept": "application/vnd.github.v3.raw"})
+                            if readme_res.status_code == 200:
+                                combined_github_content += f"- README 주요 내용: {readme_res.text[:600]}...\n"
+            except Exception as e:
+                logger.error(f"[GitHub Fetch Error] {username}/{repo_name}: {e}")
+                continue
+                
+    return combined_github_content
+
+
 @router.post("/{session_id}/upload-resume")
 @log_execution_time("이력서 PDF 처리 및 맞춤 질문 생성 API (upload_resume_and_generate_questions)")
 async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -447,6 +516,11 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
                 extracted = page.extract_text()
                 if extracted:
                     resume_text += extracted + "\n"
+
+        # 🚀 [신규 연동] 이력서 텍스트 안에서 GitHub 주소 감지 및 README 데이터 추출
+        github_content = await extract_github_content(resume_text)
+        if github_content:
+            resume_text += github_content  # 추출된 깃허브 정보를 기존 이력서 텍스트 맨 뒤에 이어붙임 (RAG 청크화 대상에 포함됨)
 
         # 2. 세션 정보 조회하여 직무(job_category) 가져오기
         session_query = text("SELECT job_category FROM interview_sessions WHERE id = CAST(:id AS UUID)")
@@ -1157,12 +1231,14 @@ async def websocket_interview_endpoint(
                     if isinstance(candidate, dict)
                 ]
 
+                # 🚀 첫 번째 질문을 전달할 때는 리액션 없이 바로 전송
                 await send_next_question(
                     websocket,
                     questions_list[current_index],
                     current_index + 1,
                     total_questions,
                     selected_candidates,
+                    reaction_text="", 
                 )
 
             # 🚀 수정: 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석 및 기준점 적용
@@ -1239,6 +1315,14 @@ async def websocket_interview_endpoint(
                 )
                 accumulated_score += earned_score
                 
+                # 🚀 [추가 기능] 면접관의 답변 점수를 기반으로 자연스러운 랜덤 리액션 문구 배정
+                if earned_score < 40:
+                    reaction_text = random.choice(["네...", "음, 알겠습니다.", "네, 일단 알겠습니다."])
+                elif earned_score >= 80:
+                    reaction_text = random.choice(["네, 구체적인 설명 잘 들었습니다.", "좋은 답변 감사합니다.", "네, 명확하게 이해했습니다."])
+                else:
+                    reaction_text = random.choice(["네, 알겠습니다.", "음.. 답변 감사합니다.", "네, 잘 들었습니다.", "네, 확인했습니다."])
+
                 # 피드백 텍스트에 습관어 및 시선 처리 경고 문구 덧붙이기
                 if filler_count > 0:
                     feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다. 불필요한 습관어는 전문성을 떨어뜨릴 수 있으니 유의해 주세요."
@@ -1300,12 +1384,14 @@ async def websocket_interview_endpoint(
                 current_gaze_loss_count = 0 # 다음 문항을 위해 시선 이탈 횟수 초기화
 
                 if current_index < total_questions:
+                    # 🚀 [수정] 방금 생성한 리액션 문구를 다음 질문 전송 시 함께 전달합니다.
                     await send_next_question(
                         websocket,
                         questions_list[current_index],
                         current_index + 1,
                         total_questions,
                         selected_candidates,
+                        reaction_text=reaction_text,
                     )
                 else:
                     final_avg_score = int(

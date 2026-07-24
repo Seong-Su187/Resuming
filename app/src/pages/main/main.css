@@ -693,6 +693,13 @@
     gap: 10px;
 }
 
+.user-floating-menu.scrolled {
+    top: 24px;
+    right: 24px;
+
+    transform: translateY(0);
+}
+
 /* 초기 상태에서 보이는 원형 유저 아이콘 */
 .user-floating-trigger {
     display: flex;
@@ -794,4 +801,416 @@
 .user-floating-item:focus-visible {
     outline: 2px solid #ffffff;
     outline-offset: 3px;
+}
+
+/* =========================================================
+   SECTION 2 - Q&A
+========================================================= */
+
+.section2 {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    box-sizing: border-box;
+    padding: 38px 38px 34px;
+}
+
+.main-faq-background {
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    background-image:
+        linear-gradient(rgba(93, 143, 120, 0.035) 1px,
+            transparent 1px),
+        linear-gradient(90deg,
+            rgba(93, 143, 120, 0.035) 1px,
+            transparent 1px);
+
+    background-size: 48px 48px;
+
+    mask-image: linear-gradient(to bottom,
+            transparent,
+            #000 18%,
+            #000 82%,
+            transparent);
+}
+
+.main-faq-container {
+    position: relative;
+    z-index: 1;
+
+    display: flex;
+    flex-direction: column;
+
+    width: 100%;
+    max-width: 1840px;
+    height: 100%;
+}
+
+.main-faq-heading {
+    flex-shrink: 0;
+
+    margin-bottom: 22px;
+    text-align: center;
+}
+
+.main-faq-heading h2 {
+    margin: 0;
+
+    color: #202522;
+    font-size: clamp(24px, 2vw, 34px);
+    font-weight: 800;
+    letter-spacing: -0.04em;
+}
+
+/* 다섯 개 세로 패널 */
+.main-faq-groups {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 18px;
+
+    min-height: 0;
+    flex: 1;
+}
+
+/* 각 카테고리 패널 */
+.main-faq-group {
+    display: flex;
+    flex-direction: column;
+
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+
+    border: 2px solid rgba(32, 37, 34, 0.84);
+    border-radius: 36px;
+
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: blur(12px);
+
+    box-shadow:
+        0 18px 38px rgba(30, 46, 38, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.95);
+
+    opacity: 0;
+    transform: translateY(28px);
+
+    animation: mainFaqGroupAppear 0.7s ease forwards;
+    animation-delay: var(--faq-delay);
+}
+
+@keyframes mainFaqGroupAppear {
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.main-faq-group-title {
+    flex-shrink: 0;
+
+    min-height: 48px;
+    margin: 0;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    border-bottom: 1px solid rgba(32, 37, 34, 0.1);
+
+    color: #202522;
+    font-size: clamp(14px, 1vw, 18px);
+    font-weight: 800;
+    line-height: 1.35;
+    text-align: center;
+    word-break: keep-all;
+}
+
+/* 패널 내부 스크롤 */
+.main-faq-list {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+
+    min-height: 0;
+    padding: 18px 6px 10px;
+
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+
+    /* Firefox */
+    scrollbar-width: none;
+
+    /* IE, 구형 Edge */
+    -ms-overflow-style: none;
+}
+
+/* Chrome, Edge, Safari */
+.main-faq-list::-webkit-scrollbar {
+    display: none;
+}
+
+.main-faq-item {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* 공통 말풍선 */
+.main-faq-question,
+.main-faq-answer {
+    position: relative;
+
+    display: flex;
+    gap: 8px;
+
+    box-sizing: border-box;
+
+    width: 88%;
+    padding: 11px 12px;
+
+    border-radius: 15px;
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.main-faq-group:hover .main-faq-question:hover,
+.main-faq-group:hover .main-faq-answer:hover {
+    transform: translateY(-2px) scale(1);
+}
+
+/* 왼쪽 질문 말풍선 */
+.main-faq-question {
+    align-self: flex-start;
+
+    border: 1px solid rgba(32, 37, 34, 0.14);
+
+    color: #252b27;
+    background: rgba(255, 255, 255, 0.96);
+
+    box-shadow: 0 7px 18px rgba(31, 42, 36, 0.07);
+}
+
+.main-faq-question::after {
+    content: "";
+
+    position: absolute;
+    bottom: -5px;
+    left: 18px;
+
+    width: 10px;
+    height: 10px;
+
+    border-right: 1px solid rgba(32, 37, 34, 0.14);
+    border-bottom: 1px solid rgba(32, 37, 34, 0.14);
+
+    background: #ffffff;
+
+    transform: rotate(45deg);
+}
+
+/* 오른쪽 답변 말풍선 */
+.main-faq-answer {
+    align-self: flex-end;
+
+    color: #ffffff;
+
+    background: linear-gradient(135deg,
+            #5d8f78,
+            #477561);
+
+    box-shadow: 0 8px 20px rgba(70, 115, 95, 0.22);
+}
+
+.main-faq-answer::after {
+    content: "";
+
+    position: absolute;
+    right: 18px;
+    bottom: -5px;
+
+    width: 10px;
+    height: 10px;
+
+    background: #4c7c67;
+
+    transform: rotate(45deg);
+}
+
+.main-faq-mark {
+    flex-shrink: 0;
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 20px;
+    height: 20px;
+
+    border-radius: 50%;
+
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.main-faq-question .main-faq-mark {
+    color: #ffffff;
+    background: #202522;
+}
+
+.main-faq-answer .main-faq-mark {
+    color: #4d7c68;
+    background: rgba(255, 255, 255, 0.94);
+}
+
+.main-faq-question p,
+.main-faq-answer p {
+    margin: 0;
+
+    font-size: clamp(11px, 0.72vw, 13px);
+    line-height: 1.55;
+    letter-spacing: -0.02em;
+    word-break: keep-all;
+    overflow-wrap: break-word;
+}
+
+.main-faq-question p {
+    font-weight: 700;
+}
+
+.main-faq-answer p {
+    color: rgba(255, 255, 255, 0.94);
+    font-weight: 500;
+}
+
+/* 작은 화면에서는 가로 스크롤 */
+@media (max-width: 1280px) {
+    .section2 {
+        padding-right: 24px;
+        padding-left: 24px;
+    }
+
+    .main-faq-groups {
+        grid-template-columns: repeat(5, minmax(270px, 1fr));
+
+        overflow-x: auto;
+        padding-bottom: 8px;
+
+        scroll-snap-type: x mandatory;
+    }
+
+    .main-faq-group {
+        scroll-snap-align: start;
+    }
+}
+
+@media (max-width: 768px) {
+    .section2 {
+        padding: 24px 16px;
+    }
+
+    .main-faq-heading {
+        margin-bottom: 16px;
+    }
+
+    .main-faq-groups {
+        grid-template-columns: repeat(5, minmax(82vw, 1fr));
+    }
+
+    .main-faq-group {
+        border-radius: 28px;
+    }
+
+    .main-faq-question p,
+    .main-faq-answer p {
+        font-size: 13px;
+    }
+}
+
+/* =========================================================
+   FAQ 메시지 순차 등장
+========================================================= */
+
+.main-faq-message {
+    opacity: 0;
+    visibility: hidden;
+
+    filter: blur(3px);
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+/* 질문은 왼쪽 아래에서 등장 */
+.main-faq-question.main-faq-message {
+    transform: translate(-18px, 12px) scale(0.96);
+}
+
+/* 답변은 오른쪽 아래에서 등장 */
+.main-faq-answer.main-faq-message {
+    transform: translate(18px, 12px) scale(0.96);
+}
+
+/* section2가 화면에 들어온 뒤 메시지 재생 */
+.section2.faq-visible .main-faq-message {
+    animation:
+        mainFaqMessageAppear 1s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+
+    animation-delay:
+        calc(var(--faq-delay) + var(--message-delay));
+}
+
+@keyframes mainFaqMessageAppear {
+    from {
+        opacity: 0;
+        visibility: hidden;
+
+        filter: blur(3px);
+    }
+
+    to {
+        opacity: 1;
+        visibility: visible;
+
+        transform: translate(0, 0) scale(1);
+        filter: blur(0);
+    }
+}
+
+/* 패널에 마우스를 올리면 남은 채팅 즉시 공개 */
+.main-faq-group:hover .main-faq-message {
+    opacity: 1;
+    visibility: visible;
+
+    transform: translate(0, 0) scale(1);
+    filter: blur(0);
+
+    animation-delay: 0s;
+    animation-duration: 0.15s;
+}
+
+.section2:not(.faq-visible) .main-faq-message {
+    opacity: 0;
+    visibility: hidden;
+
+    filter: blur(3px);
+
+    animation: none;
+}
+
+.section2:not(.faq-visible) .main-faq-question.main-faq-message {
+    transform: translate(-18px, 12px) scale(0.96);
+}
+
+.section2:not(.faq-visible) .main-faq-answer.main-faq-message {
+    transform: translate(18px, 12px) scale(0.96);
 }
