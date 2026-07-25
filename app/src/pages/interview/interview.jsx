@@ -44,21 +44,21 @@ function Interview() {
         },
     ];
 
-    const INTERVIEWER_SATISFIED_VIDEOS = [
-        '/assets/interviewer-avatar-satisfied1.mp4',
-        '/assets/interviewer-avatar-satisfied2.mp4',
-        '/assets/interviewer-avatar-satisfied3.mp4',
-        '/assets/interviewer-avatar-satisfied4.mp4',
-        '/assets/interviewer-avatar-satisfied5.mp4',
-    ];
+    // 리액션 스트리밍 요청 시 duo_avatar_type에 사용할 코랩 아바타 변형 이름 후보.
+    // 실제 값은 `${변형이름}_${technical|personality}` 형태로 조합해서 보냅니다.
+    const REACTION_AVATAR_VARIANTS = {
+        satisfied: [
+            'interviewer-avatar-satisfied1',
+            'interviewer-avatar-satisfied3',
+        ],
+        dissatisfied: [
+            'interviewer-avatar-dissatisfied3',
+            'interviewer-avatar-dissatisfied4',
+        ],
+    };
 
-    const INTERVIEWER_DISSATISFIED_VIDEOS = [
-        '/assets/interviewer-avatar-dissatisfied1.mp4',
-        '/assets/interviewer-avatar-dissatisfied2.mp4',
-        '/assets/interviewer-avatar-dissatisfied3.mp4',
-        '/assets/interviewer-avatar-dissatisfied4.mp4',
-        '/assets/interviewer-avatar-dissatisfied5.mp4',
-    ];
+    // 질문할 때 매번 랜덤으로 섞어 쓸 아바타 후보. 'duo'는 접미사 없이 기존 avatar_duo(technical/personality) 그대로 사용.
+    const QUESTION_AVATAR_VARIANTS = ['duo', 'main_avatar1', 'main_avatar2'];
 
     const getRandomInterviewerDefaultVideo = () => {
         const randomValue = Math.random();
@@ -139,7 +139,9 @@ function Interview() {
     const isInterviewerStreamPlayingRef = useRef(false);
     const isDefaultVideoTransitioningRef = useRef(false);
     const pendingInterviewerMessageRef = useRef(null);
-    const pendingEvaluationVideoRef = useRef(null);
+    // 리액션 아바타 스트림이 재생 중인지, 그게 끝나면 이어서 재생할 다음 질문 데이터
+    const isReactionStreamActiveRef = useRef(false);
+    const pendingQuestionAfterReactionRef = useRef(null);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
@@ -428,12 +430,7 @@ function Interview() {
             return;
         }
 
-        const nextVideoUrl =
-            pendingEvaluationVideoRef.current ||
-            getRandomInterviewerDefaultVideo();
-
-        // 평가 영상은 한 번만 재생
-        pendingEvaluationVideoRef.current = null;
+        const nextVideoUrl = getRandomInterviewerDefaultVideo();
 
         const handleCanPlay = async () => {
             nextVideo.removeEventListener(
@@ -900,6 +897,108 @@ function Interview() {
 
         candidateVideoPreviousTimeRef.current = null;
         candidateVideoDirectionRef.current = 1;
+    };
+
+    // next_question 데이터로 실제 질문 아바타 스트림을 재생합니다.
+    // 리액션이 없으면 즉시, 리액션이 있으면 그 스트림의 onEnded 이후에 호출됩니다.
+    const playQuestionStream = (data) => {
+        isReactionStreamActiveRef.current = false;
+
+        setQuestionIndex(data.current_index - 1);
+        setTotalQuestions(data.total_questions);
+        setStep('answer');
+
+        // 🚀 추가: 어떤 면접관이 질문하는지 파악하여 상태 업데이트
+        const isTechQuestion = data.interviewer_type === 'technical' || data.avatar === 'middle_aged';
+        setCurrentInterviewer(isTechQuestion ? 'tech' : 'hr');
+
+        const playbackId = interviewerPlaybackIdRef.current + 1;
+        interviewerPlaybackIdRef.current = playbackId;
+
+        // 립싱크 영상이 실제로 시작될 때 표시할 질문 저장
+        pendingInterviewerMessageRef.current = {
+            playbackId,
+            questionText: data.question_text,
+            name: getInterviewerName(
+                data.interviewer_type,
+                data.avatar,
+            ),
+        };
+
+        setIsInterviewerSpeaking(true);
+
+        // 🚀 질문마다 avatar_duo(기본)/main_avatar1/main_avatar2 중 하나를 매번 랜덤으로 골라서 사용
+        const questionVariant = getRandomVideo(QUESTION_AVATAR_VARIANTS);
+        const questionDuoAvatarType =
+            questionVariant === 'duo'
+                ? data.duo_avatar_type
+                : `${questionVariant}_${data.duo_avatar_type}`;
+
+        playInterviewerVideoStream(
+            data.question_text,
+            data.avatar,
+            questionDuoAvatarType,
+        ).then((success) => {
+            if (
+                success === false &&
+                interviewerPlaybackIdRef.current === playbackId
+            ) {
+                // 영상 생성에 실패한 경우에도 질문은 채팅으로 표시
+                const pendingMessage =
+                    pendingInterviewerMessageRef.current;
+
+                if (
+                    pendingMessage &&
+                    pendingMessage.playbackId === playbackId
+                ) {
+                    addMessage(
+                        'interviewer',
+                        pendingMessage.questionText,
+                        pendingMessage.name,
+                    );
+
+                    pendingInterviewerMessageRef.current = null;
+                }
+
+                setIsInterviewerSpeaking(false);
+            }
+        });
+
+        stopCandidateVideoAnimation();
+
+        setActiveCandidateAnswer(null);
+        setTypedCandidateText('');
+        setCandidateTransition('');
+        setIsCandidateSceneReady(false);
+
+        setCandidateAnswerQueue(
+            shuffleCandidateAnswers(
+                data.candidate_answers ?? [],
+            ),
+        );
+    };
+
+    // 면접관 스트림 영상이 끝나거나(onEnded) 오류가 났을 때(onError) 호출됩니다.
+    // 방금 끝난 게 리액션 스트림이었다면 대기 중인 다음 질문을 이어서 재생하고,
+    // 아니면(=질문 스트림이 끝난 것) 평소처럼 기본 idle 영상으로 되돌립니다.
+    const playQueuedQuestionOrRestoreDefault = () => {
+        if (isReactionStreamActiveRef.current) {
+            isReactionStreamActiveRef.current = false;
+
+            const queuedQuestion = pendingQuestionAfterReactionRef.current;
+
+            if (queuedQuestion) {
+                pendingQuestionAfterReactionRef.current = null;
+
+                // 다음 질문 스트림이 도착하기까지 몇 초 걸리는 동안 리액션 영상의 마지막 프레임이
+                // 멈춘 채로 남아있지 않도록, 먼저 배경 idle 영상으로 되돌려놓고 스트림을 요청합니다.
+                restoreDefaultInterviewerVideo();
+                playQuestionStream(queuedQuestion);
+                return;
+            }
+        }
+
+        restoreDefaultInterviewerVideo();
     };
 
     const startCandidateVideoPingPong = () => {
@@ -1760,79 +1859,12 @@ function Interview() {
                     setIsRecordingAnswer(false);
                     setIsProcessingAnswer(false);
 
-                    setQuestionIndex(data.current_index - 1);
-                    setTotalQuestions(data.total_questions);
-                    setStep('answer');
-
-                    // 🚀 추가: 어떤 면접관이 질문하는지 파악하여 상태 업데이트
-                    const isTechQuestion = data.interviewer_type === 'technical' || data.avatar === 'middle_aged';
-                    setCurrentInterviewer(isTechQuestion ? 'tech' : 'hr');
-
-                    const playbackId = interviewerPlaybackIdRef.current + 1;
-                    interviewerPlaybackIdRef.current = playbackId;
-
-                    // 립싱크 영상이 실제로 시작될 때 표시할 질문 저장
-                    pendingInterviewerMessageRef.current = {
-                        playbackId,
-                        reactionText: data.reaction_text || '',
-                        questionText: data.question_text,
-                        name: getInterviewerName(
-                            data.interviewer_type,
-                            data.avatar,
-                        ),
-                    };
-
-                    setIsInterviewerSpeaking(true);
-
-                    playInterviewerVideoStream(
-                        data.full_audio_text || data.question_text,
-                        data.avatar,
-                        data.duo_avatar_type,
-                    ).then((success) => {
-                        if (
-                            success === false &&
-                            interviewerPlaybackIdRef.current === playbackId
-                        ) {
-                            // 영상 생성에 실패한 경우에도 질문은 채팅으로 표시
-                            const pendingMessage =
-                                pendingInterviewerMessageRef.current;
-
-                            if (
-                                pendingMessage &&
-                                pendingMessage.playbackId === playbackId
-                            ) {
-                                if (pendingMessage.reactionText) {
-                                    addMessage(
-                                        'interviewer',
-                                        pendingMessage.reactionText,
-                                        pendingMessage.name,
-                                    );
-                                }
-
-                                addMessage(
-                                    'interviewer',
-                                    pendingMessage.questionText,
-                                    pendingMessage.name,
-                                );
-
-                                pendingInterviewerMessageRef.current = null;
-                            }
-
-                            setIsInterviewerSpeaking(false);
-                        }
-                    });
-                    stopCandidateVideoAnimation();
-
-                    setActiveCandidateAnswer(null);
-                    setTypedCandidateText('');
-                    setCandidateTransition('');
-                    setIsCandidateSceneReady(false);
-
-                    setCandidateAnswerQueue(
-                        shuffleCandidateAnswers(
-                            data.candidate_answers ?? [],
-                        ),
-                    );
+                    if (isReactionStreamActiveRef.current) {
+                        // 리액션 아바타 영상이 아직 재생 중이면, 그게 끝난 뒤(onEnded)에 이어서 재생합니다.
+                        pendingQuestionAfterReactionRef.current = data;
+                    } else {
+                        playQuestionStream(data);
+                    }
 
                     return;
                 }
@@ -1843,13 +1875,38 @@ function Interview() {
                         `답변 평가 ${data.score}점\n${data.feedback}`,
                     );
 
-                    const evaluationVideos =
-                        Number(data.score) >= 50
-                            ? INTERVIEWER_SATISFIED_VIDEOS
-                            : INTERVIEWER_DISSATISFIED_VIDEOS;
+                    // 🚀 리액션 문구를 만족/불만족 아바타 변형으로 립싱크 재생 (채팅창에는 안 띄움)
+                    if (data.reaction_text && data.duo_avatar_type) {
+                        const variantPool =
+                            Number(data.score) >= 50
+                                ? REACTION_AVATAR_VARIANTS.satisfied
+                                : REACTION_AVATAR_VARIANTS.dissatisfied;
 
-                    pendingEvaluationVideoRef.current =
-                        getRandomVideo(evaluationVideos);
+                        const variantName = getRandomVideo(variantPool);
+                        const reactionDuoAvatarType =
+                            `${variantName}_${data.duo_avatar_type}`;
+
+                        isReactionStreamActiveRef.current = true;
+
+                        playInterviewerVideoStream(
+                            data.reaction_text,
+                            data.avatar,
+                            reactionDuoAvatarType,
+                        ).then((success) => {
+                            if (success === false) {
+                                // 리액션 스트리밍 자체가 실패하면 대기 중이던 다음 질문을 바로 이어서 재생
+                                isReactionStreamActiveRef.current = false;
+
+                                const queuedQuestion =
+                                    pendingQuestionAfterReactionRef.current;
+
+                                if (queuedQuestion) {
+                                    pendingQuestionAfterReactionRef.current = null;
+                                    playQuestionStream(queuedQuestion);
+                                }
+                            }
+                        });
+                    }
 
                     if (
                         interviewModeRef.current === 'developer' &&
@@ -3625,6 +3682,8 @@ function Interview() {
                         onPlaying={() => {
                             setIsInterviewerStreamVisible(true);
 
+                            // 리액션 스트림은 채팅에 표시할 pendingInterviewerMessageRef를 안 만들기 때문에,
+                            // 여기서는 질문 스트림이 재생 중일 때만 채팅에 질문 텍스트가 표시됩니다.
                             const pendingMessage =
                                 pendingInterviewerMessageRef.current;
 
@@ -3633,14 +3692,6 @@ function Interview() {
                                 pendingMessage.playbackId ===
                                 interviewerPlaybackIdRef.current
                             ) {
-                                if (pendingMessage.reactionText) {
-                                    addMessage(
-                                        'interviewer',
-                                        pendingMessage.reactionText,
-                                        pendingMessage.name,
-                                    );
-                                }
-
                                 addMessage(
                                     'interviewer',
                                     pendingMessage.questionText,
@@ -3657,7 +3708,7 @@ function Interview() {
                             }
 
                             setIsInterviewerSpeaking(false);
-                            restoreDefaultInterviewerVideo();
+                            playQueuedQuestionOrRestoreDefault();
                         }}
                         onError={(event) => {
                             const video = event.currentTarget;
@@ -3673,7 +3724,7 @@ function Interview() {
 
                             if (isInterviewerStreamPlayingRef.current) {
                                 setIsInterviewerSpeaking(false);
-                                restoreDefaultInterviewerVideo();
+                                playQueuedQuestionOrRestoreDefault();
                             }
                         }}
                     />
