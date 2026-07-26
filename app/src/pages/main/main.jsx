@@ -195,6 +195,35 @@ const interviewScenarioSteps = [
     { id: '16', phase: '결과', title: '면접 기록 확인', image: '/assets/scenario/step-16.png', x: 28, y: 91 },
 ];
 
+const scenarioAnimationSequence = [
+    '01',
+    '02',
+    '03',
+    '04',
+    '05',
+    '06',
+    '07',
+    '08',
+    '09',
+    '10',
+    '11',
+
+    '12',
+    '13',
+    '12',
+    '13',
+    '12',
+    '13',
+    '12',
+    '13',
+    '12',
+    '13',
+
+    '14',
+    '15',
+    '16',
+];
+
 const scenarioConnections = [
     { from: '01', to: '02' },
     { from: '02', to: '03' },
@@ -423,6 +452,7 @@ function Main({ mainVideoUrl }) {
     const [selectedScenarioStep, setSelectedScenarioStep] = useState(null);
     const [scenarioAnchors, setScenarioAnchors] = useState({});
     const [isScenarioVisible, setIsScenarioVisible] = useState(false);
+    const [scenarioSequenceIndex, setScenarioSequenceIndex] = useState(-1);
 
     useEffect(() => {
         if (isFirstVisit) {
@@ -567,6 +597,32 @@ function Main({ mainVideoUrl }) {
             observer.disconnect();
         };
     }, []);
+
+    useEffect(() => {
+        if (!isScenarioVisible) {
+            setScenarioSequenceIndex(-1);
+            return;
+        }
+
+        setScenarioSequenceIndex(0);
+
+        const interval = setInterval(() => {
+            setScenarioSequenceIndex((previousIndex) => {
+                const nextIndex = previousIndex + 1;
+
+                if (nextIndex >= scenarioAnimationSequence.length) {
+                    clearInterval(interval);
+                    return previousIndex;
+                }
+
+                return nextIndex;
+            });
+        }, 550);
+
+        return () => {
+            clearInterval(interval);
+        };
+    }, [isScenarioVisible]);
 
     useEffect(() => {
         if (!selectedScenarioStep) {
@@ -1134,17 +1190,21 @@ function Main({ mainVideoUrl }) {
                                             return null;
                                         }
 
-                                        const connectionOrder = getScenarioOrder(to.id);
+                                        const connectionStepId = to.id.slice(0, 2);
+
+                                        const firstConnectionSequenceIndex =
+                                            scenarioAnimationSequence.indexOf(connectionStepId);
+
+                                        const isConnectionVisible =
+                                            firstConnectionSequenceIndex !== -1 &&
+                                            firstConnectionSequenceIndex <= scenarioSequenceIndex;
 
                                         return (
                                             <path
                                                 key={`${fromId}-${toId}`}
-                                                className="main-scenario-connection scenario-appear"
+                                                className={`main-scenario-connection ${isConnectionVisible ? 'connection-visible' : ''
+                                                    }`}
                                                 d={pathData}
-                                                style={{
-                                                    '--scenario-delay':
-                                                        `${(connectionOrder - 1) * 0.55}s`,
-                                                }}
                                                 markerEnd={
                                                     isVerticalConnection
                                                         ? 'url(#scenarioArrowVertical)'
@@ -1156,10 +1216,10 @@ function Main({ mainVideoUrl }) {
                                 )}
 
                                 <path
-                                    className="main-scenario-loop-line main-scenario-connection scenario-appear"
-                                    style={{
-                                        '--scenario-delay': `${(14 - 1) * 0.55}s`,
-                                    }}
+                                    className={`main-scenario-loop-line main-scenario-connection ${scenarioSequenceIndex >= scenarioAnimationSequence.indexOf('13')
+                                        ? 'connection-visible'
+                                        : ''
+                                        }`}
                                     d="M 82 84 C 99 97, 103 68, 94 64"
                                     markerEnd="url(#scenarioArrowVertical)"
                                 />
@@ -1171,15 +1231,29 @@ function Main({ mainVideoUrl }) {
                             <div className="main-scenario-zone zone-result">RESULT</div>
 
                             {interviewScenarioSteps.map((step) => {
-                                const scenarioOrder = getScenarioOrder(step.id);
+                                const animationStepId = step.id.slice(0, 2);
+
+                                const activeScenarioStep =
+                                    scenarioAnimationSequence[scenarioSequenceIndex];
+
+                                const isActive =
+                                    activeScenarioStep === animationStepId;
+
+                                const firstSequenceIndex =
+                                    scenarioAnimationSequence.indexOf(animationStepId);
+
+                                const isCompleted =
+                                    firstSequenceIndex !== -1 &&
+                                    firstSequenceIndex <= scenarioSequenceIndex;
 
                                 return (
                                     <article
                                         key={`${step.id}-${step.title}`}
                                         className={`main-scenario-step scenario-appear ${step.repeat ? 'repeat-step' : ''
+                                            } ${isCompleted ? 'scenario-completed' : ''
+                                            } ${isActive ? 'scenario-active' : ''
                                             }`}
                                         style={{
-                                            '--scenario-delay': `${(scenarioOrder - 1) * 0.55}s`,
                                             '--scenario-x': `${step.x}%`,
                                             '--scenario-y': `${step.y}%`,
                                         }}

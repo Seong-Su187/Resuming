@@ -1371,15 +1371,21 @@
         border-color 0.22s ease;
 }
 
-/* section3 진입 시 모든 카드를 먼저 표시 */
 .section3.scenario-visible .main-scenario-step {
-    animation:
-        mainScenarioStepReveal 0.45s ease forwards,
-        mainScenarioStepFocus 0.65s ease forwards;
+    opacity: 0.55;
+    filter: grayscale(1) brightness(0.85);
+    transform: translate(-50%, -50%) scale(1);
+}
 
-    animation-delay:
-        0.15s,
-        var(--scenario-delay);
+/* 한 번 활성화된 카드는 필터 제거 상태 유지 */
+.section3.scenario-visible .main-scenario-step.scenario-completed {
+    opacity: 1;
+    filter: grayscale(0) brightness(1);
+    transform: translate(-50%, -50%) scale(1);
+}
+
+.section3.scenario-visible .main-scenario-step.scenario-active {
+    animation: mainScenarioStepFocus 0.55s ease-in-out;
 }
 
 /* 다른 섹션으로 이동하면 초기 상태로 복원 */
@@ -1444,10 +1450,13 @@
     }
 }
 
-/* 연결선은 전체 지도가 열린 뒤 자연스럽게 한 번에 표시 */
-.section3.scenario-visible .main-scenario-connection {
-    animation: mainScenarioLineAppear 0.7s ease forwards;
-    animation-delay: 0.3s;
+/* 연결선과 화살표는 다음 단계가 처음 등장할 때 한 번만 표시 */
+.main-scenario-connection {
+    opacity: 0;
+}
+
+.section3.scenario-visible .main-scenario-connection.connection-visible {
+    animation: mainScenarioLineAppear 0.45s ease forwards;
 }
 
 .section3:not(.scenario-visible) .main-scenario-connection {
