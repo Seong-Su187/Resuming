@@ -43,14 +43,21 @@ def split_resume_text(text: str, chunk_size: int = 500) -> list[str]:
 
 
 @log_execution_time("LLM 맞춤 면접 질문 단건 생성 (generate_single_question)")
-def generate_single_question(job_category: str, intent: str, context: str, q_type: str, avatar: str) -> dict:
+def generate_single_question(job_category: str, intent: str, context: str, q_type: str, avatar: str, previous_questions: list = None) -> dict:
     try:
+        prev_q_text = ""
+        if previous_questions:
+            prev_q_text = "\n[이전에 생성된 질문 목록 (중복 회피용)]\n" + "\n".join([f"- {q}" for q in previous_questions]) + "\n"
+
         if q_type == "hr":
             system_prompt = (
                 f"당신은 10년 차 '{job_category}' 인사 담당 면접관입니다.\n"
                 f"지원자의 이력서 중 다음 [검색된 정보]를 참고하여, '{intent}'에 관한 인성/HR 면접 질문 1개를 생성하세요.\n"
                 f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부'를 파악하는 데 집중하세요.\n"
-                f"이력서에 관련 내용이 부족하더라도 억지로 기술을 묻지 말고, 일반적이고 포괄적인 인성 면접 질문(예: 우리 회사에 지원한 구체적인 이유는 무엇인가요?)을 자연스럽게 생성하세요.\n"
+                f"이력서에 관련 내용이 부족하더라도 억지로 기술을 묻지 말고, 일반적이고 포괄적인 인성 면접 질문을 자연스럽게 생성하세요.\n"
+                "[주의사항]\n"
+                "- '이력서에 작성하신~' 혹은 '이력서를 보면~' 같은 기계적인 도입부를 절대 사용하지 마세요. 대화하듯 자연스럽게 질문의 본론으로 바로 들어가세요.\n"
+                f"{prev_q_text}"
                 "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
                 "{\n"
                 f'  "question": "우리 회사에 지원하게 된 구체적인 동기와 이뤄내고 싶은 목표는 무엇인가요?",\n'
@@ -63,9 +70,13 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
                 f"당신은 10년 차 '{job_category}' 기술 면접 평가관입니다.\n"
                 f"지원자의 이력서 중 다음 [검색된 정보]를 바탕으로 '{intent}'에 관한 기술 면접 질문 1개를 생성하세요.\n"
                 f"질문은 단순한 확인이 아니라, 지원자의 실제 프로젝트 경험에 기반하여 구체적이고 날카롭게 꼬리를 무는 형식으로 작성해야 합니다.\n"
+                "[주의사항]\n"
+                "- '이력서에 작성하신 OOO 프로젝트에서~'와 같은 틀에 박힌 반복적인 도입부를 절대 사용하지 마세요. 실제 면접관처럼 자연스럽게 바로 본론을 물어보세요.\n"
+                "- 이미 질문한 내용과 똑같은 프로젝트나 똑같은 기술에 대한 질문을 반복하지 마세요.\n"
+                f"{prev_q_text}"
                 "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
                 "{\n"
-                f'  "question": "이력서에 작성하신 OOO 프로젝트에서 겪은 기술적 문제를 어떻게 해결하셨나요?",\n'
+                f'  "question": "좌석 차감 처리에 행 잠금을 적용하셨는데, 데드락이 발생할 위험은 없었나요? 어떻게 대비하셨는지 궁금합니다.",\n'
                 f'  "type": "{q_type}",\n'
                 f'  "avatar": "{avatar}"\n'
                 "}"
@@ -94,7 +105,6 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
         }
 
 
-# 🚀 수정: 과거 기록(past_record)과 현재 분석 지표(current_metrics) 파라미터 추가
 @log_execution_time("LLM 지원자 답변 채점 및 피드백 생성 (evaluate_answer_with_llm)")
 def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str = "", current_metrics: dict = None, past_record: dict = None) -> dict:
     try:
@@ -129,7 +139,6 @@ def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str 
             "'질문의 의도를 파악하지 못한 것 같습니다. 질문에 집중해서 다시 답변해 주시기 바랍니다.'"
             "라고 작성하세요.\n\n"
             
-            # 🚀 신규 추가: 과거 답변과의 비교 분석 로직 추가
             "[성장 추이 분석 (선택 사항)]\n"
             "만약 지원자의 '의미상 가장 유사했던 과거 답변 및 지표'와 '현재 지표'가 제공된다면, 과거와 비교하여 어떤 점이 개선되었는지 분석하세요.\n"
             "비언어적 지표(시선 이탈 감소, 습관어 감소, 목소리 떨림 감소 등)와 답변 내용의 구체성을 비교하여 긍정적인 성장을 칭찬해 주세요.\n\n"
@@ -137,14 +146,12 @@ def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str 
             "반드시 다음 필드만 포함한 JSON 객체로 응답하세요.\n"
             "- score: 평가 결과에 따른 0부터 100 사이의 정수\n"
             "- feedback: 점수의 구체적인 근거와 개선점을 설명한 문자열\n"
-            "- ack_phrase: 지원자의 답변을 듣고 면접관이 다음 질문으로 넘어가기 전 할 법한 짧고 자연스러운 리액션 한 마디 (예: '네, 잘 알겠습니다.', '구체적인 설명 감사합니다.', '흥미로운 경험이군요.')\n"
             "- growth_feedback: (과거 기록이 제공된 경우에만) 과거 답변/지표와 현재를 비교하여 나아진 점을 분석하고 칭찬하는 문자열. 제공되지 않으면 빈 문자열 처리.\n"
             "다른 필드는 추가하지 마세요."
         )
         
         user_prompt = f"[질문]: {question}\n[모범 RAG 답변 가이드]: {ideal_answer}\n[지원자 답변]: {user_answer}\n"
         
-        # 과거 기록과 현재 지표가 존재하면 프롬프트에 제공
         if current_metrics:
             user_prompt += f"\n[지원자 현재 지표]: {json.dumps(current_metrics, ensure_ascii=False)}"
         if past_record:

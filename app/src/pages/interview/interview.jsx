@@ -1,4 +1,3 @@
-/* interview.jsx */
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API_BASE_URL from '../../config/apiConfig';
@@ -45,7 +44,6 @@ function Interview() {
     ];
 
     // 리액션 스트리밍 요청 시 duo_avatar_type에 사용할 코랩 아바타 변형 이름 후보.
-    // 실제 값은 `${변형이름}_${technical|personality}` 형태로 조합해서 보냅니다.
     const REACTION_AVATAR_VARIANTS = {
         satisfied: [
             'interviewer-avatar-satisfied1',
@@ -57,7 +55,6 @@ function Interview() {
         ],
     };
 
-    // 질문할 때 매번 랜덤으로 섞어 쓸 아바타 후보. 'duo'는 접미사 없이 기존 avatar_duo(technical/personality) 그대로 사용.
     const QUESTION_AVATAR_VARIANTS = ['duo', 'main_avatar1', 'main_avatar2'];
 
     const getRandomInterviewerDefaultVideo = () => {
@@ -96,18 +93,18 @@ function Interview() {
     const canvasRef = useRef(null);
     const bgImageRef = useRef(new Image());
     const selfieSegmentationRef = useRef(null);
-    const renderLoopRef = useRef(null); // 수동 프레임 루프 관리를 위한 Ref
+    const renderLoopRef = useRef(null); 
 
-    // 시선 영점 조절용 State (2단계)
-    const [calibrationPhase, setCalibrationPhase] = useState('hr_ready'); // hr_ready, hr_calibrating, tech_ready, tech_calibrating
+    // 시선 영점 조절용 State
+    const [calibrationPhase, setCalibrationPhase] = useState('hr_ready'); 
     const [baselines, setBaselines] = useState({
         hrNose: 0.5, hrIris: 0.5,
         techNose: 0.5, techIris: 0.5
     });
     const [calibrationCountdown, setCalibrationCountdown] = useState(0);
 
-    // 🚀 추가: 현재 쳐다봐야 할 대상(질문 중인 면접관) 상태 관리
-    const [currentInterviewer, setCurrentInterviewer] = useState('hr'); // 'hr' 또는 'tech'
+    // 현재 쳐다봐야 할 대상(질문 중인 면접관) 상태 관리
+    const [currentInterviewer, setCurrentInterviewer] = useState('hr');
 
     const candidateDelayTimerRef = useRef(null);
 
@@ -139,7 +136,6 @@ function Interview() {
     const isInterviewerStreamPlayingRef = useRef(false);
     const isDefaultVideoTransitioningRef = useRef(false);
     const pendingInterviewerMessageRef = useRef(null);
-    // 리액션 아바타 스트림이 재생 중인지, 그게 끝나면 이어서 재생할 다음 질문 데이터
     const isReactionStreamActiveRef = useRef(false);
     const pendingQuestionAfterReactionRef = useRef(null);
 
@@ -189,15 +185,8 @@ function Interview() {
     const [isResumeChecking, setIsResumeChecking] = useState(false);
 
     const [isCameraActive, setIsCameraActive] = useState(false);
-
-    // 카메라 사용 여부 선택 모달
-    const [isCameraChoiceModalOpen, setIsCameraChoiceModalOpen] =
-        useState(true);
-
-    // null: 확인 중, true: 카메라 있음, false: 카메라 없음
+    const [isCameraChoiceModalOpen, setIsCameraChoiceModalOpen] = useState(true);
     const [hasCameraDevice, setHasCameraDevice] = useState(null);
-
-    // 사용자가 카메라 사용을 선택했는지 여부
     const [cameraUsageEnabled, setCameraUsageEnabled] = useState(false);
 
     const [answerMode, setAnswerMode] = useState('voice');
@@ -442,7 +431,6 @@ function Interview() {
                 nextVideo.currentTime = 0;
                 await nextVideo.play();
 
-                // 다음 영상이 실제로 재생된 다음 화면 전환
                 setActiveDefaultVideoIndex(nextIndex);
 
                 requestAnimationFrame(() => {
@@ -697,10 +685,6 @@ function Interview() {
             sourceBuffer =
                 mediaSource.addSourceBuffer(MIME);
 
-            // 문장별로 독립 생성된 mp4 조각들은 각자 타임스탬프가 0부터 다시 시작되므로,
-            // 자체 타임스탬프를 무시하고 도착 순서대로 이어붙이는 'sequence' 모드로 설정합니다.
-            // (기본값인 'segments' 모드는 겹치는 타임스탬프를 같은 구간으로 취급해
-            // 뒤에 온 문장이 덮어써진 것처럼 사라지는 문제가 있었습니다.)
             sourceBuffer.mode = 'sequence';
 
             sourceBuffer.addEventListener(
@@ -719,7 +703,6 @@ function Interview() {
                             try {
                                 mediaSource.endOfStream();
                             } catch (error) {
-                                // 이미 종료된 스트림이면 무시
                             }
                         }
                     } else {
@@ -832,7 +815,6 @@ function Interview() {
                 try {
                     mediaSource.endOfStream();
                 } catch (error) {
-                    // 이미 종료된 스트림이면 무시
                 }
             }
 
@@ -899,8 +881,6 @@ function Interview() {
         candidateVideoDirectionRef.current = 1;
     };
 
-    // next_question 데이터로 실제 질문 아바타 스트림을 재생합니다.
-    // 리액션이 없으면 즉시, 리액션이 있으면 그 스트림의 onEnded 이후에 호출됩니다.
     const playQuestionStream = (data) => {
         isReactionStreamActiveRef.current = false;
 
@@ -908,14 +888,12 @@ function Interview() {
         setTotalQuestions(data.total_questions);
         setStep('answer');
 
-        // 🚀 추가: 어떤 면접관이 질문하는지 파악하여 상태 업데이트
         const isTechQuestion = data.interviewer_type === 'technical' || data.avatar === 'middle_aged';
         setCurrentInterviewer(isTechQuestion ? 'tech' : 'hr');
 
         const playbackId = interviewerPlaybackIdRef.current + 1;
         interviewerPlaybackIdRef.current = playbackId;
 
-        // 립싱크 영상이 실제로 시작될 때 표시할 질문 저장
         pendingInterviewerMessageRef.current = {
             playbackId,
             questionText: data.question_text,
@@ -927,7 +905,6 @@ function Interview() {
 
         setIsInterviewerSpeaking(true);
 
-        // 🚀 질문마다 avatar_duo(기본)/main_avatar1/main_avatar2 중 하나를 매번 랜덤으로 골라서 사용
         const questionVariant = getRandomVideo(QUESTION_AVATAR_VARIANTS);
         const questionDuoAvatarType =
             questionVariant === 'duo'
@@ -943,7 +920,6 @@ function Interview() {
                 success === false &&
                 interviewerPlaybackIdRef.current === playbackId
             ) {
-                // 영상 생성에 실패한 경우에도 질문은 채팅으로 표시
                 const pendingMessage =
                     pendingInterviewerMessageRef.current;
 
@@ -978,9 +954,6 @@ function Interview() {
         );
     };
 
-    // 면접관 스트림 영상이 끝나거나(onEnded) 오류가 났을 때(onError) 호출됩니다.
-    // 방금 끝난 게 리액션 스트림이었다면 대기 중인 다음 질문을 이어서 재생하고,
-    // 아니면(=질문 스트림이 끝난 것) 평소처럼 기본 idle 영상으로 되돌립니다.
     const playQueuedQuestionOrRestoreDefault = () => {
         if (isReactionStreamActiveRef.current) {
             isReactionStreamActiveRef.current = false;
@@ -990,8 +963,6 @@ function Interview() {
             if (queuedQuestion) {
                 pendingQuestionAfterReactionRef.current = null;
 
-                // 다음 질문 스트림이 도착하기까지 몇 초 걸리는 동안 리액션 영상의 마지막 프레임이
-                // 멈춘 채로 남아있지 않도록, 먼저 배경 idle 영상으로 되돌려놓고 스트림을 요청합니다.
                 restoreDefaultInterviewerVideo();
                 playQuestionStream(queuedQuestion);
                 return;
@@ -1281,7 +1252,7 @@ function Interview() {
                 `기존 이력서를 바탕으로 ${data.question_count}개의 면접 질문이 생성되었습니다.`,
             );
 
-            startVisionCalibration(); // 웹캠 영점 조절 단계로 이동
+            startVisionCalibration(); 
         } catch (error) {
             console.error('기존 이력서 사용 오류:', error);
 
@@ -1651,7 +1622,7 @@ function Interview() {
                 `${data.question_count}개의 맞춤 면접 질문이 생성되었습니다.`,
             );
 
-            startVisionCalibration(); // 웹캠 영점 조절 단계로 이동
+            startVisionCalibration(); 
         } catch (error) {
             console.error('이력서 업로드 오류:', error);
 
@@ -1688,7 +1659,6 @@ function Interview() {
     };
 
     const startVisionCalibration = async () => {
-        // 사용자가 카메라 미사용을 선택했거나 카메라가 없는 경우
         if (
             !cameraUsageEnabled ||
             hasCameraDevice === false
@@ -1702,7 +1672,6 @@ function Interview() {
             return;
         }
 
-        // 사용하기로 했지만 현재 카메라가 꺼져 있는 경우
         if (!isCameraActive) {
             const cameraStarted = await startUserCamera();
 
@@ -1830,6 +1799,31 @@ function Interview() {
 
                 console.log('WebSocket 수신:', data);
 
+                if (data.type === 'interviewer_acknowledgment') {
+                    // 🚀 프론트엔드 채팅창에 리액션 문구를 띄우지 않도록 주석 처리(의도된 동작 복구)
+                    // addMessage('interviewer', data.text, getInterviewerName(data.interviewer_type, data.avatar));
+                    
+                    isReactionStreamActiveRef.current = true;
+                    setIsInterviewerSpeaking(true);
+                    
+                    playInterviewerVideoStream(
+                        data.text,
+                        data.avatar,
+                        data.duo_avatar_type,
+                    ).then((success) => {
+                        if (success === false) {
+                            isReactionStreamActiveRef.current = false;
+                            const queuedQuestion = pendingQuestionAfterReactionRef.current;
+                            if (queuedQuestion) {
+                                pendingQuestionAfterReactionRef.current = null;
+                                playQuestionStream(queuedQuestion);
+                            }
+                        }
+                    });
+                    
+                    return;
+                }
+
                 if (data.type === 'connection_established') {
                     developerInterviewEndingRef.current = false;
 
@@ -1860,7 +1854,6 @@ function Interview() {
                     setIsProcessingAnswer(false);
 
                     if (isReactionStreamActiveRef.current) {
-                        // 리액션 아바타 영상이 아직 재생 중이면, 그게 끝난 뒤(onEnded)에 이어서 재생합니다.
                         pendingQuestionAfterReactionRef.current = data;
                     } else {
                         playQuestionStream(data);
@@ -1874,39 +1867,6 @@ function Interview() {
                         'system',
                         `답변 평가 ${data.score}점\n${data.feedback}`,
                     );
-
-                    // 🚀 리액션 문구를 만족/불만족 아바타 변형으로 립싱크 재생 (채팅창에는 안 띄움)
-                    if (data.reaction_text && data.duo_avatar_type) {
-                        const variantPool =
-                            Number(data.score) >= 50
-                                ? REACTION_AVATAR_VARIANTS.satisfied
-                                : REACTION_AVATAR_VARIANTS.dissatisfied;
-
-                        const variantName = getRandomVideo(variantPool);
-                        const reactionDuoAvatarType =
-                            `${variantName}_${data.duo_avatar_type}`;
-
-                        isReactionStreamActiveRef.current = true;
-
-                        playInterviewerVideoStream(
-                            data.reaction_text,
-                            data.avatar,
-                            reactionDuoAvatarType,
-                        ).then((success) => {
-                            if (success === false) {
-                                // 리액션 스트리밍 자체가 실패하면 대기 중이던 다음 질문을 바로 이어서 재생
-                                isReactionStreamActiveRef.current = false;
-
-                                const queuedQuestion =
-                                    pendingQuestionAfterReactionRef.current;
-
-                                if (queuedQuestion) {
-                                    pendingQuestionAfterReactionRef.current = null;
-                                    playQuestionStream(queuedQuestion);
-                                }
-                            }
-                        });
-                    }
 
                     if (
                         interviewModeRef.current === 'developer' &&
@@ -2339,34 +2299,31 @@ function Interview() {
             const canvasElement = canvasRef.current;
             const canvasCtx = canvasElement.getContext('2d');
 
-            bgImageRef.current.src = '/office_background.jpg'; // 배경 이미지 경로 (public 폴더 기준)
+            bgImageRef.current.src = '/office_background.jpg'; 
 
             const selfieSegmentation = new MP_SelfieSegmentation({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
             });
 
             selfieSegmentation.setOptions({
-                modelSelection: 1, // 1: 성능/속도 우선
+                modelSelection: 1, 
             });
 
             selfieSegmentation.onResults((results) => {
                 canvasCtx.save();
                 canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
-                // 1. 마스크(실루엣) 그리기
                 canvasCtx.globalCompositeOperation = 'source-over';
                 canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
 
-                // 2. 마스크 안쪽에만 실제 웹캠 이미지(내 얼굴) 채워 넣기
                 canvasCtx.globalCompositeOperation = 'source-in';
                 canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-                // 3. 인물 뒤쪽으로 가짜 배경 밀어넣기
                 canvasCtx.globalCompositeOperation = 'destination-over';
                 if (bgImageRef.current.complete && bgImageRef.current.naturalWidth > 0) {
                     canvasCtx.drawImage(bgImageRef.current, 0, 0, canvasElement.width, canvasElement.height);
                 } else {
-                    canvasCtx.fillStyle = '#333333'; // 이미지 로딩 전 기본 배경색
+                    canvasCtx.fillStyle = '#333333'; 
                     canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
                 }
 
@@ -2375,7 +2332,6 @@ function Interview() {
 
             selfieSegmentationRef.current = selfieSegmentation;
 
-            // MediaPipe Camera 래퍼를 사용하지 않고 직접 웹캠 스트림 요청
             const stream = await navigator.mediaDevices.getUserMedia({
                 video: { width: { ideal: 640 }, height: { ideal: 360 } },
                 audio: false
@@ -2610,7 +2566,6 @@ function Interview() {
         checkCameraDevice();
     }, []);
 
-    // 🚀 수정: 서버로 프레임 보낼 때 현재 질문 중인 면접관에 맞춰 기준값을 교체하여 전송하고 녹음 중(is_recording) 상태도 같이 전송
     useEffect(() => {
         let interval;
         if (step === 'answer' && isCameraActive && websocketRef.current?.readyState === WebSocket.OPEN) {
@@ -2618,7 +2573,6 @@ function Interview() {
                 if (canvasRef.current) {
                     const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.6);
 
-                    // 현재 질문 중인 면접관에 따라 사용할 기준값 선택
                     const activeNose = currentInterviewer === 'tech' ? baselines.techNose : baselines.hrNose;
                     const activeIris = currentInterviewer === 'tech' ? baselines.techIris : baselines.hrIris;
 
@@ -2626,12 +2580,11 @@ function Interview() {
                         JSON.stringify({
                             type: 'video_frame',
                             image: base64Image,
-                            current_target: currentInterviewer, // 현재 쳐다봐야 할 면접관 (서버 참고용)
-                            baseline_nose: activeNose,          // 동적으로 바뀌는 실제 검사 기준값
+                            current_target: currentInterviewer, 
+                            baseline_nose: activeNose,          
                             baseline_iris: activeIris,
-                            is_recording: isRecordingAnswerRef.current, // 🚀 이 부분에 추가되었습니다
+                            is_recording: isRecordingAnswerRef.current, 
 
-                            // (혹시 모를 서버 로그 기록이나 하위 호환성을 위한 개별 데이터 유지)
                             baseline_nose_hr: baselines.hrNose,
                             baseline_iris_hr: baselines.hrIris,
                             baseline_nose_tech: baselines.techNose,
@@ -2642,13 +2595,12 @@ function Interview() {
             }, 1000);
         }
 
-        // 의존성 배열에 currentInterviewer를 추가하여, 면접관이 바뀔 때마다 interval이 새로 갱신되도록 합니다.
         return () => clearInterval(interval);
     }, [step, isCameraActive, baselines, currentInterviewer]);
 
     useEffect(() => {
         return () => {
-            stopUserCamera(); // 컴포넌트 언마운트 시 리소스 해제
+            stopUserCamera(); 
         };
     }, []);
 
@@ -2993,7 +2945,7 @@ function Interview() {
                         type="button"
                         className="interview-action-button record-button"
                         onClick={handleStartCalibration}
-                        style={{ backgroundColor: '#2d6a4f' }} // 버튼 색상 변경하여 구분감 추가
+                        style={{ backgroundColor: '#2d6a4f' }} 
                     >
                         <span className="action-icon">🎯</span>
                         기술 면접관(오른쪽) 영점 조절 시작
@@ -3545,32 +3497,6 @@ function Interview() {
             )}
 
             <div className="temporary-mode-panel">
-                {/*
-                <div className="temporary-mode-row">
-                    <span>답변 모드</span>
-
-                    <div className="temporary-mode-buttons">
-                        <button
-                            type="button"
-                            className={answerMode === 'voice' ? 'active' : ''}
-                            onClick={() => setAnswerMode('voice')}
-                            disabled={isRecordingAnswer}
-                        >
-                            음성
-                        </button>
-
-                        <button
-                            type="button"
-                            className={answerMode === 'text' ? 'active' : ''}
-                            onClick={() => setAnswerMode('text')}
-                            disabled={isRecordingAnswer}
-                        >
-                            텍스트
-                        </button>
-                    </div>
-                </div>
-                */}
-
                 <div className="temporary-mode-row">
                     <span>진행 모드</span>
 
@@ -3682,8 +3608,6 @@ function Interview() {
                         onPlaying={() => {
                             setIsInterviewerStreamVisible(true);
 
-                            // 리액션 스트림은 채팅에 표시할 pendingInterviewerMessageRef를 안 만들기 때문에,
-                            // 여기서는 질문 스트림이 재생 중일 때만 채팅에 질문 텍스트가 표시됩니다.
                             const pendingMessage =
                                 pendingInterviewerMessageRef.current;
 
@@ -3698,7 +3622,6 @@ function Interview() {
                                     pendingMessage.name,
                                 );
 
-                                // onPlaying이 일시정지 후 재개될 때 또 실행될 수 있으므로 제거
                                 pendingInterviewerMessageRef.current = null;
                             }
                         }}
