@@ -6,6 +6,12 @@ backend/routers/interviews.py의 _generate_rag_questions와 동일한 로직(청
 쓰지 않기 위해 벡터 검색만 numpy 코사인 유사도로 인메모리 재현한다 (pgvector의
 `ORDER BY embedding <=> ... LIMIT 3`와 동일한 순서를 보장).
 
+backend_developer 이력서에는 extract_github_content()가 실제로 만드는 것과 같은 형식의
+GitHub 프로젝트 요약을 이력서 텍스트 뒤에 붙여서(BACKEND_DEV_GITHUB_CONTENT), 실제
+서비스처럼 "이력서 + GitHub 요약"이 함께 청크화되는 경우도 검증한다 (실제 GitHub API는
+호출하지 않음 - 재현성을 위해 고정된 텍스트 사용). marketing_planner는 GitHub 요약 없이
+원본 이력서만 사용해서, 두 경우 모두 정상 동작하는지 같이 확인한다.
+
 평가 지표 (ragas 라이브러리):
 - Context Precision / Recall (ID 기반, LLM 불필요): 검색된 청크가 미리 라벨링한
   정답 청크와 얼마나 겹치는지.
@@ -46,14 +52,42 @@ SEARCH_QUERIES = [
     ("팀원과의 협업 경험, 갈등 해결 방식, 또는 본인만의 장단점 (인성 및 컬처핏)", "hr", "young"),
 ]
 
+# interviews.py의 extract_github_content()가 실제로 만드는 것과 동일한 형식의 고정 텍스트.
+# 실제 GitHub API를 매번 호출하면 평가 재현성이 떨어지므로(레포 내용이 바뀔 수 있음),
+# 이 프로젝트의 다른 합성 테스트 데이터와 같은 방식으로 고정된 값을 직접 만들어 사용한다.
+# backend_developer 이력서에만 적용해서, "GitHub 요약이 붙었을 때"와 "안 붙었을 때" 둘 다 검증한다.
+BACKEND_DEV_GITHUB_CONTENT = (
+    "\n\n[🚀 지원자 GitHub 프로젝트 및 활동 요약 (RAG Context)]\n"
+    "\n- 프로젝트명: order-management-api (소유자: minsu-kim)"
+    "\n- 프로젝트 설명: FastAPI와 PostgreSQL 기반의 주문/예약 관리 API 서버"
+    "\n- README 주요 내용: 이 프로젝트는 동시 예약 요청 시 발생하는 데이터 정합성 문제를 "
+    "SELECT FOR UPDATE 기반 행 잠금으로 해결했습니다. Redis를 캐시 레이어로 도입해 조회 API의 "
+    "평균 응답 시간을 크게 단축했으며, pytest 기반 테스트 커버리지를 80% 이상 유지하고 있습니다. "
+    "GitHub Actions로 CI 파이프라인을 구성해 PR마다 자동으로 테스트와 린트를 실행합니다...\n"
+    "\n- 프로젝트명: kafka-notification-service (소유자: minsu-kim)"
+    "\n- 프로젝트 설명: Kafka 기반 사내 알림 발송 마이크로서비스"
+    "\n- README 주요 내용: 여러 서비스에서 발생하는 이벤트를 Kafka 토픽으로 수집해서, "
+    "사용자별 알림 채널(이메일/슬랙)로 비동기 발송하는 서비스입니다. Docker Compose로 로컬 개발 "
+    "환경을 구성했고, 컨슈머 그룹을 활용해 장애 시에도 메시지 유실 없이 재처리되도록 설계했습니다...\n"
+)
+
 # 각 테스트 이력서에서, 검색 의도(인덱스)별로 실제 사람이 보기에 "정답"인 청크 인덱스.
 # split_resume_text(chunk_size=500)로 실제 분할해본 결과를 보고 직접 라벨링했다.
+# (backend_developer는 GitHub 요약이 뒤에 붙어서 4청크 -> 5청크로 바뀌고, 청크 경계도 살짝 밀린다.)
 RESUME_TEST_CASES = [
     {
         "name": "backend_developer",
         "path": os.path.join(os.path.dirname(__file__), "rag_resume_1.txt"),
         "job_category": "백엔드 개발자",
-        "ground_truth": {0: [0], 1: [1], 2: [0, 1], 3: [2], 4: [2, 3]},
+        "github_content": BACKEND_DEV_GITHUB_CONTENT,
+        "ground_truth": {
+            0: [0, 3, 4],     # 기술 스택: 이력서 본문 소개 + GitHub 프로젝트 2개 모두 스택을 보여줌
+            1: [1, 3, 4],     # 주도적 프로젝트/기술적 문제 해결: 사내 프로젝트 + GitHub 프로젝트 둘 다 해당
+            2: [0, 1, 3],     # 기술 역량 딥다이브: 가장 포괄적인 의도. (k=3 검색이라 정답을 4개로 잡으면
+                              # recall 지표 자체가 왜곡되므로 k와 같은 3개로 제한)
+            3: [2],           # 지원 동기: GitHub 요약과 무관, 안 바뀜
+            4: [2, 3],        # 협업/컬처핏: 강점/약점 문단이 청크 2~3 경계에 걸쳐 나뉘어 안 바뀜
+        },
     },
     {
         "name": "marketing_planner",
@@ -65,12 +99,8 @@ RESUME_TEST_CASES = [
 
 JUDGE_MODEL = "gpt-4.1-mini"  # 질문 생성(gpt-4o-mini)과 다른 계열 모델. 속도를 위해 mini급으로 선택.
 
-# 10개를 전부 동시에 쏘면 OpenAI 레이트리밋에 걸려 재시도 대기가 길어질 수 있어 동시 실행 수를 제한합니다.
-CONCURRENCY_LIMIT = 3
-_semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
-
-# 10개를 전부 동시에 쏘면 OpenAI 레이트리밋에 걸려 재시도 대기가 길어질 수 있어 동시 실행 수를 제한합니다.
-CONCURRENCY_LIMIT = 3
+# 여러 개를 동시에 쏘면 OpenAI 레이트리밋에 걸려 재시도 대기가 길어질 수 있어 동시 실행 수를 제한합니다.
+CONCURRENCY_LIMIT = 2
 _semaphore = asyncio.Semaphore(CONCURRENCY_LIMIT)
 
 
@@ -86,6 +116,11 @@ async def prepare_resume(case):
     """이력서 청크 분할 + 청크별 임베딩을 준비한다 (get_embedding은 동기 함수라 to_thread로 병렬화)."""
     with open(case["path"], encoding="utf-8") as f:
         resume_text = f.read()
+
+    # interviews.py의 `resume_text += github_content`와 동일하게, 청크화 전에 이어붙인다.
+    if case.get("github_content"):
+        resume_text += case["github_content"]
+        print(f"[rag_eval] [{case['name']}] GitHub 요약 텍스트 추가 (프로덕션 extract_github_content 형식 재현)", flush=True)
 
     chunks = split_resume_text(resume_text)
     print(f"[rag_eval] [{case['name']}] {len(chunks)}개 청크로 분할", flush=True)
