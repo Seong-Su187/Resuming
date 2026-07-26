@@ -9,10 +9,8 @@ import audioop
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# 🚀 성능 측정용 로거 데코레이터 임포트 추가
 from logger_config import log_execution_time
 
-# .env 환경 변수 파일 로드
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -24,7 +22,6 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 
 
 def get_embedding(text: str) -> list[float]:
-    """[RAG] 텍스트를 임베딩(벡터)으로 변환합니다."""
     try:
         response = client.embeddings.create(
             input=text,
@@ -37,7 +34,6 @@ def get_embedding(text: str) -> list[float]:
 
 
 def split_resume_text(text: str, chunk_size: int = 500) -> list[str]:
-    """[RAG] 이력서를 청크(문단/길이) 단위로 분할합니다."""
     chunks = []
     for i in range(0, len(text), chunk_size):
         chunk = text[i:i + chunk_size].strip()
@@ -48,13 +44,12 @@ def split_resume_text(text: str, chunk_size: int = 500) -> list[str]:
 
 @log_execution_time("LLM 맞춤 면접 질문 단건 생성 (generate_single_question)")
 def generate_single_question(job_category: str, intent: str, context: str, q_type: str, avatar: str) -> dict:
-    """[RAG] 벡터 검색으로 찾은 관련 컨텍스트를 바탕으로 특정 의도의 면접 질문 1개를 생성합니다."""
     try:
         if q_type == "hr":
             system_prompt = (
                 f"당신은 10년 차 '{job_category}' 인사 담당 면접관입니다.\n"
                 f"지원자의 이력서 중 다음 [검색된 정보]를 참고하여, '{intent}'에 관한 인성/HR 면접 질문 1개를 생성하세요.\n"
-                f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부' 파악하는 데 집중하세요.\n"
+                f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부'를 파악하는 데 집중하세요.\n"
                 f"이력서에 관련 내용이 부족하더라도 억지로 기술을 묻지 말고, 일반적이고 포괄적인 인성 면접 질문(예: 우리 회사에 지원한 구체적인 이유는 무엇인가요?)을 자연스럽게 생성하세요.\n"
                 "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
                 "{\n"
@@ -99,12 +94,9 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
         }
 
 
+# 🚀 수정: 과거 기록(past_record)과 현재 분석 지표(current_metrics) 파라미터 추가
 @log_execution_time("LLM 지원자 답변 채점 및 피드백 생성 (evaluate_answer_with_llm)")
-def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str = "") -> dict:
-    """
-    사용자의 답변을 채점하고 피드백을 생성합니다. (동문서답 예외 처리 포함)
-    반드시 JSON 형태로 score와 feedback을 반환하도록 강제합니다.
-    """
+def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str = "", current_metrics: dict = None, past_record: dict = None) -> dict:
     try:
         system_prompt = (
             "당신은 매우 엄격한 기술 면접 평가관입니다. "
@@ -130,28 +122,33 @@ def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str 
             "- 구체적인 결과나 성과가 없는 경우 최대 79점입니다.\n"
             "- 상황, 역할, 행동, 결과, 회고가 모두 구체적이어야 90점 이상을 줄 수 있습니다.\n\n"
 
-            "[점수 구간]\n"
-            "- 90~100점: 실제 사례, 역할, 행동, 기술적 해결 과정, 결과, 회고가 모두 구체적임\n"
-            "- 70~89점: 전반적으로 적절하지만 일부 구체성, 결과 또는 기술 설명이 부족함\n"
-            "- 50~69점: 질문에는 답하지만 경험과 행동 과정이 추상적이거나 일부만 설명됨\n"
-            "- 20~49점: 관련 내용은 있으나 일반론 중심이며 실제 경험과 해결 과정이 거의 없음\n"
-            "- 1~19점: 질문과 일부 관련된 단어나 짧은 의견만 제시함\n"
-            "- 0점: 동문서답, 답변 거부, 모르겠다는 회피, 비속어 또는 의미 없는 단어 나열\n\n"
-
             "[0점 예외 처리]\n"
             "지원자의 답변이 질문과 전혀 상관없거나, 답변을 회피하거나, "
             "비속어 또는 의미 없는 단어의 나열인 경우 모든 세부 점수를 0점으로 처리하세요.\n"
             "이 경우 feedback에는 반드시 "
             "'질문의 의도를 파악하지 못한 것 같습니다. 질문에 집중해서 다시 답변해 주시기 바랍니다.'"
             "라고 작성하세요.\n\n"
+            
+            # 🚀 신규 추가: 과거 답변과의 비교 분석 로직 추가
+            "[성장 추이 분석 (선택 사항)]\n"
+            "만약 지원자의 '의미상 가장 유사했던 과거 답변 및 지표'와 '현재 지표'가 제공된다면, 과거와 비교하여 어떤 점이 개선되었는지 분석하세요.\n"
+            "비언어적 지표(시선 이탈 감소, 습관어 감소, 목소리 떨림 감소 등)와 답변 내용의 구체성을 비교하여 긍정적인 성장을 칭찬해 주세요.\n\n"
 
-            "반드시 다음 두 필드만 포함한 JSON 객체로 응답하세요.\n"
+            "반드시 다음 필드만 포함한 JSON 객체로 응답하세요.\n"
             "- score: 평가 결과에 따른 0부터 100 사이의 정수\n"
             "- feedback: 점수의 구체적인 근거와 개선점을 설명한 문자열\n"
+            "- ack_phrase: 지원자의 답변을 듣고 면접관이 다음 질문으로 넘어가기 전 할 법한 짧고 자연스러운 리액션 한 마디 (예: '네, 잘 알겠습니다.', '구체적인 설명 감사합니다.', '흥미로운 경험이군요.')\n"
+            "- growth_feedback: (과거 기록이 제공된 경우에만) 과거 답변/지표와 현재를 비교하여 나아진 점을 분석하고 칭찬하는 문자열. 제공되지 않으면 빈 문자열 처리.\n"
             "다른 필드는 추가하지 마세요."
         )
         
-        user_prompt = f"[질문]: {question}\n[모범 RAG 답변 가이드]: {ideal_answer}\n[지원자 답변]: {user_answer}"
+        user_prompt = f"[질문]: {question}\n[모범 RAG 답변 가이드]: {ideal_answer}\n[지원자 답변]: {user_answer}\n"
+        
+        # 과거 기록과 현재 지표가 존재하면 프롬프트에 제공
+        if current_metrics:
+            user_prompt += f"\n[지원자 현재 지표]: {json.dumps(current_metrics, ensure_ascii=False)}"
+        if past_record:
+            user_prompt += f"\n[과거 의미적으로 가장 유사했던 답변 및 지표]: {json.dumps(past_record, ensure_ascii=False)}"
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
@@ -171,10 +168,6 @@ def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str 
         return {"score": 50, "feedback": "답변 평가 중 오류가 발생했습니다. 다음 질문으로 넘어갑니다."}
 
 def preprocess_audio(input_path: str, output_path: str) -> bool:
-    """
-    FFmpeg로 음성을 16kHz mono WAV로 변환하고 기본 잡음을 제거합니다.
-    성공하면 True, 실패하면 False를 반환합니다.
-    """
     try:
         command = [
             "ffmpeg",
@@ -228,9 +221,6 @@ def has_meaningful_voice(
     rms_threshold: int = 500,
     minimum_active_ratio: float = 0.05,
 ) -> bool:
-    """
-    WAV 파일에 의미 있는 크기의 소리가 포함되어 있는지 검사
-    """
     try:
         with wave.open(audio_path, "rb") as wav_file:
             sample_width = wav_file.getsampwidth()
@@ -282,9 +272,6 @@ def has_meaningful_voice(
 
 @log_execution_time("Whisper API 기반 음성 텍스트 변환 (process_audio_to_text)")
 def process_audio_to_text(audio_file_path: str) -> str:
-    """
-    음성 전처리 후 OpenAI Whisper API로 STT를 수행
-    """
     processed_audio_path = None
 
     try:
@@ -411,7 +398,6 @@ AVATAR_VOICE_MAP = {
 
 @log_execution_time("OpenAI TTS 음성 합성 요청 (generate_text_to_speech)")
 def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
-    """OpenAI TTS API를 활용한 텍스트 -> 음성 생성"""
     try:
         response = client.audio.speech.create(
             model="tts-1",
@@ -431,7 +417,6 @@ def generate_candidate_answer_with_llm(
     candidate_name: str,
     candidate_description: str,
 ) -> str:
-    """지원자 성향을 반영해 면접 답변을 생성합니다."""
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",

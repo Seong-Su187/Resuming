@@ -852,14 +852,16 @@
     height: 100%;
 }
 
-.main-faq-heading {
+.main-faq-heading,
+.main-scenario-heading {
     flex-shrink: 0;
 
     margin-bottom: 22px;
     text-align: center;
 }
 
-.main-faq-heading h2 {
+.main-faq-heading h2,
+.main-scenario-heading h2 {
     margin: 0;
 
     color: #202522;
@@ -1213,4 +1215,616 @@
 
 .section2:not(.faq-visible) .main-faq-answer.main-faq-message {
     transform: translate(18px, 12px) scale(0.96);
+}
+
+/* =========================================================
+   SECTION 3 - INTERVIEW SCENARIO MAP
+========================================================= */
+
+.section3 {
+    box-sizing: border-box;
+    padding: 34px 30px 22px;
+}
+
+.main-scenario-background {
+    position: absolute;
+    inset: 0;
+
+    pointer-events: none;
+
+    background-image:
+        linear-gradient(rgba(31, 48, 39, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(31, 48, 39, 0.035) 1px, transparent 1px);
+    background-size: 34px 34px;
+
+    mask-image: linear-gradient(to bottom, transparent, #000 7%, #000 94%, transparent);
+}
+
+.main-scenario-container {
+    position: relative;
+    z-index: 1;
+
+    display: flex;
+    flex-direction: column;
+
+    width: 100%;
+    height: 100%;
+    max-width: 1860px;
+    margin: 0 auto;
+}
+
+.main-scenario-map {
+    position: relative;
+
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+
+    border: 1px solid rgba(32, 37, 34, 0.08);
+    border-radius: 28px;
+
+    background:
+        linear-gradient(rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0.28));
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.86),
+        0 18px 42px rgba(30, 46, 38, 0.06);
+}
+
+.main-scenario-map-content {
+    position: absolute;
+    inset: 0;
+
+    transform: translateX(1%);
+}
+
+.main-scenario-lines {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+
+    pointer-events: none;
+}
+
+.main-scenario-lines>path {
+    fill: none;
+    opacity: 0;
+
+    stroke: #487460;
+    stroke-width: 1.8;
+
+    stroke-linecap: round;
+    stroke-linejoin: round;
+
+    vector-effect: non-scaling-stroke;
+
+    filter: drop-shadow(0 0 1.5px rgba(72, 116, 96, 0.35));
+}
+
+.main-scenario-lines .main-scenario-loop-line {
+    stroke: rgba(94, 95, 155, 0.62);
+    stroke-width: 0.32;
+    stroke-dasharray: 1.5 1;
+}
+
+.main-scenario-zone {
+    position: absolute;
+    z-index: 0;
+
+    color: rgba(32, 37, 34, 0.09);
+    font-size: clamp(38px, 5vw, 82px);
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    line-height: 1;
+
+    pointer-events: none;
+    user-select: none;
+}
+
+.zone-entry {
+    top: 5%;
+    left: 3%;
+}
+
+.zone-setup {
+    top: 31%;
+    left: 4%;
+}
+
+.zone-interview {
+    top: 57%;
+    right: 3%;
+}
+
+.zone-result {
+    bottom: 1%;
+    left: 31%;
+}
+
+.main-scenario-step {
+    position: absolute;
+    left: var(--scenario-x);
+    top: var(--scenario-y);
+    z-index: 2;
+
+    width: clamp(102px, 7.8vw, 142px);
+
+    border: 1px solid rgba(32, 37, 34, 0.12);
+    border-radius: 14px;
+
+    background: rgba(255, 255, 255, 0.86);
+    backdrop-filter: blur(9px);
+
+    box-shadow:
+        0 8px 20px rgba(30, 46, 38, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.96);
+
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+
+    transition:
+        transform 0.22s ease,
+        box-shadow 0.22s ease,
+        border-color 0.22s ease;
+}
+
+/* section3 진입 시 모든 카드를 먼저 표시 */
+.section3.scenario-visible .main-scenario-step {
+    animation:
+        mainScenarioStepReveal 0.45s ease forwards,
+        mainScenarioStepFocus 0.65s ease forwards;
+
+    animation-delay:
+        0.15s,
+        var(--scenario-delay);
+}
+
+/* 다른 섹션으로 이동하면 초기 상태로 복원 */
+.section3:not(.scenario-visible) .main-scenario-step {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.96);
+    animation: none;
+}
+
+/* 전체 카드가 거의 동시에 등장 */
+@keyframes mainScenarioStepReveal {
+    to {
+        opacity: 0.55;
+        filter: grayscale(1) brightness(0.85);
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+/* 진행 순서에 맞춰 카드가 잠깐 강조됨 */
+@keyframes mainScenarioStepFocus {
+    0% {
+        opacity: 0.55;
+        filter: grayscale(1) brightness(0.85);
+        transform: translate(-50%, -50%) scale(1);
+    }
+
+    45% {
+        opacity: 1;
+        filter: grayscale(0) brightness(1);
+        transform: translate(-50%, -50%) scale(1.1);
+
+        box-shadow:
+            0 16px 30px rgba(30, 46, 38, 0.16),
+            inset 0 1px 0 rgba(255, 255, 255, 0.96);
+    }
+
+    100% {
+        opacity: 1;
+        filter: grayscale(0) brightness(1);
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+.scenario-appear {
+    opacity: 0;
+}
+
+/* 카드와 연결선을 제외한 반복 안내 표시 */
+.section3.scenario-visible .scenario-appear:not(.main-scenario-connection):not(.main-scenario-step) {
+    animation: mainScenarioAppear 0.45s ease forwards;
+    animation-delay: 0.3s;
+}
+
+.section3:not(.scenario-visible) .scenario-appear {
+    opacity: 0;
+    animation: none;
+}
+
+@keyframes mainScenarioAppear {
+    to {
+        opacity: 1;
+    }
+}
+
+/* 연결선은 전체 지도가 열린 뒤 자연스럽게 한 번에 표시 */
+.section3.scenario-visible .main-scenario-connection {
+    animation: mainScenarioLineAppear 0.7s ease forwards;
+    animation-delay: 0.3s;
+}
+
+.section3:not(.scenario-visible) .main-scenario-connection {
+    opacity: 0;
+    animation: none;
+}
+
+@keyframes mainScenarioLineAppear {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.main-scenario-step:hover {
+    z-index: 6;
+
+    border-color: rgba(93, 143, 120, 0.52);
+    box-shadow: 0 18px 34px rgba(30, 46, 38, 0.16);
+    transform: translate(-50%, -50%) scale(1.09);
+}
+
+.main-scenario-preview {
+    position: relative;
+
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 8.3;
+    padding: 0;
+    overflow: hidden;
+
+    border: 0;
+    border-bottom: 1px solid rgba(32, 37, 34, 0.08);
+    border-radius: 13px 13px 0 0;
+
+    background:
+        linear-gradient(135deg, rgba(93, 143, 120, 0.17), rgba(76, 96, 128, 0.12)),
+        #e7ece9;
+
+    cursor: zoom-in;
+}
+
+.main-scenario-preview img,
+.main-scenario-modal-image>img {
+    position: relative;
+    z-index: 2;
+
+    display: block;
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    background: #e8eeeb;
+}
+
+.main-scenario-placeholder {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+
+    color: rgba(32, 37, 34, 0.34);
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+}
+
+.main-scenario-placeholder small {
+    max-width: 88%;
+    overflow: hidden;
+
+    font-size: 6px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.main-scenario-zoom {
+    position: absolute;
+    right: 5px;
+    bottom: 5px;
+    z-index: 3;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 19px;
+    height: 19px;
+
+    border: 1px solid rgba(255, 255, 255, 0.55);
+    border-radius: 50%;
+
+    color: #ffffff;
+    font-size: 13px;
+    line-height: 1;
+
+    background: rgba(12, 17, 27, 0.68);
+    backdrop-filter: blur(7px);
+
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.main-scenario-preview:hover .main-scenario-zoom,
+.main-scenario-preview:focus-visible .main-scenario-zoom {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.main-scenario-step-info {
+    padding: 6px 7px 7px;
+}
+
+.main-scenario-step-topline {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+}
+
+.main-scenario-number {
+    flex-shrink: 0;
+
+    padding: 2px 5px;
+    border-radius: 999px;
+
+    color: #ffffff;
+    font-size: 7px;
+    font-weight: 850;
+
+    background: #5d8f78;
+}
+
+.main-scenario-phase {
+    min-width: 0;
+    overflow: hidden;
+
+    font-size: 10px;
+    font-weight: 750;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.main-scenario-step h3 {
+    margin: 4px 0 0;
+
+    color: #202522;
+    font-size: clamp(8px, 0.58vw, 11px);
+    font-weight: 850;
+    line-height: 1.25;
+    letter-spacing: -0.03em;
+    word-break: keep-all;
+}
+
+.main-scenario-branch {
+    display: inline-flex;
+    margin-top: 4px;
+    padding: 2px 4px;
+
+    border-radius: 5px;
+
+    color: #59645e;
+    font-size: 6px;
+    font-weight: 750;
+
+    background: rgba(93, 143, 120, 0.1);
+}
+
+.main-scenario-step.repeat-step {
+    border-color: rgba(94, 95, 155, 0.44);
+    background: linear-gradient(145deg, rgba(240, 239, 251, 0.96), rgba(255, 255, 255, 0.88));
+}
+
+.main-scenario-loop-label {
+    position: absolute;
+    left: 74%;
+    top: 85%;
+    z-index: 4;
+
+    display: flex;
+    align-items: center;
+    gap: 6px;
+
+    padding: 7px 10px;
+
+    border: 1px solid rgba(94, 95, 155, 0.38);
+    border-radius: 999px;
+
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(8px);
+
+    box-shadow: 0 6px 16px rgba(94, 95, 155, 0.14);
+
+    transform: translate(-50%, -50%);
+}
+
+.main-scenario-loop-label strong {
+    color: #5d609e;
+    font-size: 13px;
+}
+
+.main-scenario-loop-label span {
+    color: rgba(32, 37, 34, 0.62);
+    font-size: 8px;
+    font-weight: 800;
+}
+
+.main-scenario-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 3000;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    padding: 34px;
+
+    background: rgba(7, 11, 16, 0.78);
+    backdrop-filter: blur(12px);
+
+    animation: mainScenarioModalAppear 0.2s ease;
+}
+
+@keyframes mainScenarioModalAppear {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.main-scenario-modal-content {
+    width: min(1380px, 94vw);
+    max-height: 92vh;
+    overflow: hidden;
+
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 24px;
+
+    background: #10151b;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
+}
+
+.main-scenario-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+
+    padding: 15px 18px;
+
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.main-scenario-modal-header span {
+    color: rgba(255, 255, 255, 0.54);
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.main-scenario-modal-header h3 {
+    margin: 4px 0 0;
+    font-size: 18px;
+}
+
+.main-scenario-modal-header button {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 50%;
+
+    color: #ffffff;
+    font-size: 26px;
+    line-height: 1;
+
+    background: rgba(255, 255, 255, 0.06);
+    cursor: pointer;
+}
+
+.main-scenario-modal-image {
+    position: relative;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    height: min(78vh, 820px);
+
+    background:
+        linear-gradient(135deg, rgba(93, 143, 120, 0.12), rgba(80, 91, 128, 0.1)),
+        #0b1015;
+}
+
+.main-scenario-modal-image>img {
+    object-fit: contain;
+}
+
+.modal-placeholder {
+    color: rgba(255, 255, 255, 0.34);
+    font-size: 15px;
+}
+
+@media (max-width: 1280px) {
+    .section3 {
+        padding: 20px 20px 18px;
+    }
+
+    .main-scenario-step {
+        width: clamp(86px, 8.8vw, 116px);
+    }
+
+    .main-scenario-heading p {
+        display: none;
+    }
+}
+
+@media (max-width: 900px) {
+    .main-scenario-heading {
+        align-items: flex-start;
+    }
+
+    .main-scenario-step {
+        width: clamp(72px, 9.2vw, 94px);
+    }
+
+    .main-scenario-phase,
+    .main-scenario-branch {
+        display: none;
+    }
+}
+
+@media (max-width: 768px) {
+    .section3 {
+        height: 100vh;
+        min-height: 100vh;
+        overflow: hidden;
+        padding: 16px 12px;
+    }
+
+    .main-scenario-heading h2 {
+        font-size: 22px;
+    }
+
+    .main-scenario-map {
+        border-radius: 20px;
+    }
+
+    .main-scenario-step {
+        width: 68px;
+    }
+
+    .main-scenario-step h3 {
+        font-size: 7px;
+    }
+
+    .main-scenario-modal {
+        padding: 12px;
+    }
+
+    .main-scenario-modal-image {
+        height: 72vh;
+    }
 }

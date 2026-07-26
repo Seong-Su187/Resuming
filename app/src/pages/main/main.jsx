@@ -162,6 +162,227 @@ const faqGroups = [
     },
 ];
 
+const interviewScenarioSteps = [
+    { id: '01', phase: '메인 페이지', title: '서비스 소개 확인', image: '/assets/scenario/step-01.png', x: 4, y: 10 },
+    { id: '02', phase: '메인 페이지', title: '자주 묻는 내용 확인', image: '/assets/scenario/step-02.png', x: 17, y: 10 },
+    { id: '03', phase: '메인 페이지', title: '진행 시나리오 확인', image: '/assets/scenario/step-03.png', x: 30, y: 10 },
+
+    { id: '04', phase: '로그인', title: '로그인하기', image: '/assets/scenario/step-04.png', x: 43, y: 10 },
+
+    { id: '05', phase: '면접 설정', title: '동반 면접자 선택', image: '/assets/scenario/step-05.png', x: 56, y: 10 },
+    { id: '06', phase: '면접 설정', title: '면접실 입장', image: '/assets/scenario/step-06.png', x: 69, y: 10 },
+    { id: '07', phase: '면접 설정', title: '카메라 상태 확인', image: '/assets/scenario/step-07.png', x: 82, y: 10 },
+
+    { id: '08-1-1', phase: '음성 설정', title: '기준 음성 등록', image: '/assets/scenario/step-08-1-1.png', x: 8, y: 38 },
+    { id: '08-1-2', phase: '음성 설정', title: '기준 음성 녹음', image: '/assets/scenario/step-08-1-2.png', x: 21, y: 38 },
+    { id: '08-1-3', phase: '음성 설정', title: '녹음 결과 확인', image: '/assets/scenario/step-08-1-3.png', x: 34, y: 38 },
+    { id: '08-2', phase: '음성 설정', title: '사용할 음성 선택', image: '/assets/scenario/step-08-2.png', x: 21, y: 66 },
+
+    { id: '09-1-1', phase: '이력서 설정', title: '새 이력서 등록', image: '/assets/scenario/step-09-1-1.png', x: 48, y: 38 },
+    { id: '09-1-2', phase: '이력서 설정', title: '이력서 파일 선택', image: '/assets/scenario/step-09-1-2.png', x: 61, y: 38 },
+    { id: '09-2', phase: '이력서 설정', title: '사용할 이력서 선택', image: '/assets/scenario/step-09-2.png', x: 55, y: 66 },
+
+    { id: '10', phase: '시선 설정', title: '왼쪽 면접관 시선 보정', image: '/assets/scenario/step-10.png', x: 76, y: 38 },
+    { id: '11', phase: '시선 설정', title: '오른쪽 면접관 시선 보정', image: '/assets/scenario/step-11.png', x: 89, y: 38 },
+
+    { id: '12-1', phase: '면접 진행', title: '동반 면접자 답변', image: '/assets/scenario/step-12-1.png', x: 70, y: 67 },
+    { id: '12-2', phase: '면접 진행', title: '동반 면접자 답변', image: '/assets/scenario/step-12-2.png', x: 82, y: 67 },
+    { id: '12-3', phase: '면접 진행', title: '내 답변 진행', image: '/assets/scenario/step-12-3.png', x: 94, y: 67 },
+    { id: '13', phase: '면접 진행', title: '답변 피드백 확인', image: '/assets/scenario/step-13.png', repeat: true, x: 82, y: 91 },
+
+    { id: '14', phase: '완료', title: '면접 종료', image: '/assets/scenario/step-14.png', x: 64, y: 91 },
+    { id: '15', phase: '결과', title: '면접 결과 분석', image: '/assets/scenario/step-15.png', x: 46, y: 91 },
+    { id: '16', phase: '결과', title: '면접 기록 확인', image: '/assets/scenario/step-16.png', x: 28, y: 91 },
+];
+
+const scenarioConnections = [
+    { from: '01', to: '02' },
+    { from: '02', to: '03' },
+    { from: '03', to: '04' },
+    { from: '04', to: '05' },
+    { from: '05', to: '06' },
+    { from: '06', to: '07' },
+
+    { from: '07', to: '08-1-1', route: 'branch-top-left' },
+    { from: '07', to: '08-2', route: 'branch-top-down' },
+
+    { from: '08-1-1', to: '08-1-2' },
+    { from: '08-1-2', to: '08-1-3' },
+
+    { from: '08-1-3', to: '09-1-1' },
+    { from: '08-2', to: '09-2' },
+
+    { from: '09-1-1', to: '09-1-2' },
+    { from: '09-1-2', to: '10' },
+    { from: '09-2', to: '10', route: 'resume-to-calibration' },
+
+    { from: '10', to: '11' },
+    { from: '11', to: '12-1' },
+    { from: '11', to: '12-2' },
+    { from: '11', to: '12-3' },
+
+    { from: '12-1', to: '13' },
+    { from: '12-2', to: '13' },
+    { from: '12-3', to: '13' },
+
+    { from: '13', to: '14' },
+    { from: '14', to: '15' },
+    { from: '15', to: '16' },
+];
+
+const getScenarioOrder = (id) => {
+    const baseOrder = Number(id.split('-')[0]);
+
+    return baseOrder >= 14
+        ? baseOrder + 1
+        : baseOrder;
+};
+
+const buildPolylinePath = (points) => {
+    if (!points.length) {
+        return '';
+    }
+
+    return points
+        .map((point, index) =>
+            `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`
+        )
+        .join(' ');
+};
+
+const createScenarioPath = (from, to, route, anchors) => {
+    const fromAnchor = anchors[from.id];
+    const toAnchor = anchors[to.id];
+
+    if (!fromAnchor || !toAnchor) {
+        return '';
+    }
+
+    if (route === 'resume-to-calibration') {
+        const start = fromAnchor.top;
+        const end = toAnchor.left;
+
+        const lowerLaneY = start.y - 7;
+        const sideLaneX = end.x - 4;
+
+        return buildPolylinePath([
+            start,
+            {
+                x: start.x,
+                y: lowerLaneY,
+            },
+            {
+                x: sideLaneX,
+                y: lowerLaneY,
+            },
+            {
+                x: sideLaneX,
+                y: end.y,
+            },
+            end,
+        ]);
+    }
+
+    if (route === 'branch-top-down') {
+        const start = fromAnchor.bottom;
+        const end = toAnchor.left;
+
+        const topLaneY = 28;
+        const sideLaneX = end.x - 2.5;
+
+        return buildPolylinePath([
+            start,
+            {
+                x: start.x,
+                y: topLaneY,
+            },
+            {
+                x: sideLaneX,
+                y: topLaneY,
+            },
+            {
+                x: sideLaneX,
+                y: end.y,
+            },
+            end,
+        ]);
+    }
+
+    if (route === 'branch-top-left') {
+        const start = fromAnchor.bottom;
+        const end = toAnchor.top;
+        const middleY = (start.y + end.y) / 2;
+
+        return buildPolylinePath([
+            start,
+            {
+                x: start.x,
+                y: middleY,
+            },
+            {
+                x: end.x,
+                y: middleY,
+            },
+            end,
+        ]);
+    }
+
+    const deltaX = to.x - from.x;
+    const deltaY = to.y - from.y;
+
+    if (Math.abs(deltaX) >= Math.abs(deltaY)) {
+        const movingRight = deltaX > 0;
+
+        const start = movingRight
+            ? fromAnchor.right
+            : fromAnchor.left;
+
+        const end = movingRight
+            ? toAnchor.left
+            : toAnchor.right;
+
+        const middleX = (start.x + end.x) / 2;
+
+        return buildPolylinePath([
+            start,
+            {
+                x: middleX,
+                y: start.y,
+            },
+            {
+                x: middleX,
+                y: end.y,
+            },
+            end,
+        ]);
+    }
+
+    const movingDown = deltaY > 0;
+
+    const start = movingDown
+        ? fromAnchor.bottom
+        : fromAnchor.top;
+
+    const end = movingDown
+        ? toAnchor.top
+        : toAnchor.bottom;
+
+    const middleY = (start.y + end.y) / 2;
+
+    return buildPolylinePath([
+        start,
+        {
+            x: start.x,
+            y: middleY,
+        },
+        {
+            x: end.x,
+            y: middleY,
+        },
+        end,
+    ]);
+};
+
 function Main({ mainVideoUrl }) {
     const infoSlides = [
         {
@@ -185,6 +406,9 @@ function Main({ mainVideoUrl }) {
     const videoRef = useRef(null);
     const messageTimerRef = useRef([]);
     const section2Ref = useRef(null);
+    const section3Ref = useRef(null);
+    const scenarioMapContentRef = useRef(null);
+    const scenarioPreviewRefs = useRef({});
 
     const [messageStep, setMessageStep] = useState(0);
     const [isFirstVisit] = useState(() => {
@@ -196,7 +420,9 @@ function Main({ mainVideoUrl }) {
     const [isVideoEnded, setIsVideoEnded] = useState(false);
     const [isScrolled, setIsScrolled] = useState(false);
     const [isFaqVisible, setIsFaqVisible] = useState(false);
-    const [faqAnimationCycle, setFaqAnimationCycle] = useState(0);
+    const [selectedScenarioStep, setSelectedScenarioStep] = useState(null);
+    const [scenarioAnchors, setScenarioAnchors] = useState({});
+    const [isScenarioVisible, setIsScenarioVisible] = useState(false);
 
     useEffect(() => {
         if (isFirstVisit) {
@@ -318,18 +544,134 @@ function Main({ mainVideoUrl }) {
     }, []);
 
     useEffect(() => {
-        if (!isFaqVisible) {
+        const section3 = section3Ref.current;
+        const mainPage = document.querySelector('.main-page');
+
+        if (!section3 || !mainPage) {
             return;
         }
 
-        const interval = setInterval(() => {
-            setFaqAnimationCycle((prev) => prev + 1);
-        }, 9200);
+        const observer = new IntersectionObserver(
+            ([entry]) => {
+                setIsScenarioVisible(entry.intersectionRatio >= 0.35);
+            },
+            {
+                root: mainPage,
+                threshold: 0.35,
+            },
+        );
+
+        observer.observe(section3);
 
         return () => {
-            clearInterval(interval);
+            observer.disconnect();
         };
-    }, [isFaqVisible]);
+    }, []);
+
+    useEffect(() => {
+        if (!selectedScenarioStep) {
+            return;
+        }
+
+        const handleKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setSelectedScenarioStep(null);
+            }
+        };
+
+        document.body.style.overflow = 'hidden';
+        window.addEventListener('keydown', handleKeyDown);
+
+        return () => {
+            document.body.style.overflow = '';
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [selectedScenarioStep]);
+
+    useEffect(() => {
+        const mapContent = scenarioMapContentRef.current;
+
+        if (!mapContent) {
+            return;
+        }
+
+        const updateScenarioAnchors = () => {
+            const mapRect = mapContent.getBoundingClientRect();
+
+            if (!mapRect.width || !mapRect.height) {
+                return;
+            }
+
+            const nextAnchors = {};
+
+            interviewScenarioSteps.forEach((step) => {
+                const preview = scenarioPreviewRefs.current[step.id];
+
+                if (!preview) {
+                    return;
+                }
+
+                const previewRect = preview.getBoundingClientRect();
+
+                const left =
+                    ((previewRect.left - mapRect.left) / mapRect.width) * 100;
+
+                const right =
+                    ((previewRect.right - mapRect.left) / mapRect.width) * 100;
+
+                const top =
+                    ((previewRect.top - mapRect.top) / mapRect.height) * 100;
+
+                const bottom =
+                    ((previewRect.bottom - mapRect.top) / mapRect.height) * 100;
+
+                const centerX = (left + right) / 2;
+                const centerY = (top + bottom) / 2;
+
+                nextAnchors[step.id] = {
+                    left: {
+                        x: left,
+                        y: centerY,
+                    },
+                    right: {
+                        x: right,
+                        y: centerY,
+                    },
+                    top: {
+                        x: centerX,
+                        y: top,
+                    },
+                    bottom: {
+                        x: centerX,
+                        y: bottom,
+                    },
+                };
+            });
+
+            setScenarioAnchors(nextAnchors);
+        };
+
+        updateScenarioAnchors();
+
+        const resizeObserver = new ResizeObserver(() => {
+            updateScenarioAnchors();
+        });
+
+        resizeObserver.observe(mapContent);
+
+        Object.values(scenarioPreviewRefs.current).forEach((preview) => {
+            if (preview) {
+                resizeObserver.observe(preview);
+            }
+        });
+
+        window.addEventListener('resize', updateScenarioAnchors);
+
+        return () => {
+            resizeObserver.disconnect();
+            window.removeEventListener('resize', updateScenarioAnchors);
+        };
+    }, []);
 
     const handleVideoEnded = () => {
         setTimeout(() => {
@@ -642,10 +984,7 @@ function Main({ mainVideoUrl }) {
                         <h2>궁금한 내용을 확인해 보세요</h2>
                     </div>
 
-                    <div
-                        key={faqAnimationCycle}
-                        className="main-faq-groups"
-                    >
+                    <div className="main-faq-groups">
                         {faqGroups.map((group, groupIndex) => {
                             return (
                                 <article
@@ -702,7 +1041,246 @@ function Main({ mainVideoUrl }) {
                 </div>
             </section>
 
-            <section className="main-card section3">
+            <section
+                ref={section3Ref}
+                className={`main-card section3 ${isScenarioVisible ? 'scenario-visible' : ''
+                    }`}
+            >
+                <div className="main-scenario-background" aria-hidden="true" />
+
+                <div className="main-scenario-container">
+                    <header className="main-scenario-heading">
+                        <h2>AI 모의면접 진행 시나리오</h2>
+                    </header>
+
+                    <div className="main-scenario-map">
+                        <div
+                            ref={scenarioMapContentRef}
+                            className="main-scenario-map-content"
+                        >
+                            <svg
+                                className="main-scenario-lines"
+                                viewBox="0 0 100 100"
+                                preserveAspectRatio="none"
+                                aria-hidden="true"
+                            >
+                                <defs>
+                                    {/* 좌우 연결 화살표 */}
+                                    <marker
+                                        id="scenarioArrowHorizontal"
+                                        viewBox="0 0 6 6"
+                                        markerWidth="6"
+                                        markerHeight="6"
+                                        refX="5.4"
+                                        refY="3"
+                                        orient="auto"
+                                        markerUnits="strokeWidth"
+                                    >
+                                        <path
+                                            d="M0,0 L6,3 L0,6 Z"
+                                            fill="#487460"
+                                            stroke="none"
+                                        />
+                                    </marker>
+
+                                    {/* 상하 연결 화살표 */}
+                                    <marker
+                                        id="scenarioArrowVertical"
+                                        viewBox="0 0 6 6"
+                                        markerWidth="6"
+                                        markerHeight="6"
+                                        refX="6.7"
+                                        refY="3"
+                                        orient="auto"
+                                        markerUnits="strokeWidth"
+                                    >
+                                        <path
+                                            d="M0,0 L6,3 L0,6 Z"
+                                            fill="#487460"
+                                            stroke="none"
+                                        />
+                                    </marker>
+                                </defs>
+
+                                {scenarioConnections.map(
+                                    ({ from: fromId, to: toId, route }) => {
+                                        const from = interviewScenarioSteps.find(
+                                            (step) => step.id === fromId,
+                                        );
+
+                                        const to = interviewScenarioSteps.find(
+                                            (step) => step.id === toId,
+                                        );
+
+                                        if (!from || !to) {
+                                            return null;
+                                        }
+
+                                        const deltaX = to.x - from.x;
+                                        const deltaY = to.y - from.y;
+
+                                        const isVerticalConnection =
+                                            Boolean(route) ||
+                                            Math.abs(deltaY) > Math.abs(deltaX);
+
+                                        const pathData = createScenarioPath(
+                                            from,
+                                            to,
+                                            route,
+                                            scenarioAnchors,
+                                        );
+
+                                        if (!pathData) {
+                                            return null;
+                                        }
+
+                                        const connectionOrder = getScenarioOrder(to.id);
+
+                                        return (
+                                            <path
+                                                key={`${fromId}-${toId}`}
+                                                className="main-scenario-connection scenario-appear"
+                                                d={pathData}
+                                                style={{
+                                                    '--scenario-delay':
+                                                        `${(connectionOrder - 1) * 0.55}s`,
+                                                }}
+                                                markerEnd={
+                                                    isVerticalConnection
+                                                        ? 'url(#scenarioArrowVertical)'
+                                                        : 'url(#scenarioArrowHorizontal)'
+                                                }
+                                            />
+                                        );
+                                    },
+                                )}
+
+                                <path
+                                    className="main-scenario-loop-line main-scenario-connection scenario-appear"
+                                    style={{
+                                        '--scenario-delay': `${(14 - 1) * 0.55}s`,
+                                    }}
+                                    d="M 82 84 C 99 97, 103 68, 94 64"
+                                    markerEnd="url(#scenarioArrowVertical)"
+                                />
+                            </svg>
+
+                            <div className="main-scenario-zone zone-entry">ENTRY</div>
+                            <div className="main-scenario-zone zone-setup">SETUP</div>
+                            <div className="main-scenario-zone zone-interview">INTERVIEW</div>
+                            <div className="main-scenario-zone zone-result">RESULT</div>
+
+                            {interviewScenarioSteps.map((step) => {
+                                const scenarioOrder = getScenarioOrder(step.id);
+
+                                return (
+                                    <article
+                                        key={`${step.id}-${step.title}`}
+                                        className={`main-scenario-step scenario-appear ${step.repeat ? 'repeat-step' : ''
+                                            }`}
+                                        style={{
+                                            '--scenario-delay': `${(scenarioOrder - 1) * 0.55}s`,
+                                            '--scenario-x': `${step.x}%`,
+                                            '--scenario-y': `${step.y}%`,
+                                        }}
+                                    >
+                                        <button
+                                            ref={(element) => {
+                                                if (element) {
+                                                    scenarioPreviewRefs.current[step.id] = element;
+                                                } else {
+                                                    delete scenarioPreviewRefs.current[step.id];
+                                                }
+                                            }}
+                                            type="button"
+                                            className="main-scenario-preview"
+                                            onClick={() => setSelectedScenarioStep(step)}
+                                            aria-label={`${step.id}단계 ${step.title} 화면 크게 보기`}
+                                        >
+                                            <img
+                                                src={step.image}
+                                                alt={`${step.title} 실행 화면`}
+                                                onError={(event) => {
+                                                    event.currentTarget.style.display = 'none';
+                                                }}
+                                            />
+                                            <span className="main-scenario-placeholder">
+                                                <span>SCREENSHOT</span>
+                                                <small>{step.image}</small>
+                                            </span>
+                                            <span className="main-scenario-zoom" aria-hidden="true">＋</span>
+                                        </button>
+
+                                        <div className="main-scenario-step-info">
+                                            <div className="main-scenario-step-topline">
+                                                <span className="main-scenario-number">{step.id}</span>
+                                                <span className="main-scenario-phase">{step.phase}</span>
+                                            </div>
+                                            <h3>{step.title}</h3>
+                                            {step.branch && (
+                                                <span className="main-scenario-branch">{step.branch}</span>
+                                            )}
+                                        </div>
+                                    </article>
+                                );
+                            })}
+
+                            <div
+                                className="main-scenario-loop-label scenario-appear"
+                                style={{
+                                    '--scenario-delay': `${(14 - 1) * 0.55}s`,
+                                }}
+                            >
+                                <strong>5회 반복</strong>
+                                <span>면접 답변 · 피드백</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {selectedScenarioStep && (
+                    <div
+                        className="main-scenario-modal"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label={`${selectedScenarioStep.title} 실행 화면`}
+                        onMouseDown={(event) => {
+                            if (event.target === event.currentTarget) {
+                                setSelectedScenarioStep(null);
+                            }
+                        }}
+                    >
+                        <div className="main-scenario-modal-content">
+                            <div className="main-scenario-modal-header">
+                                <div>
+                                    <span>{selectedScenarioStep.id} · {selectedScenarioStep.phase}</span>
+                                    <h3>{selectedScenarioStep.title}</h3>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setSelectedScenarioStep(null)}
+                                    aria-label="확대 화면 닫기"
+                                >
+                                    ×
+                                </button>
+                            </div>
+
+                            <div className="main-scenario-modal-image">
+                                <img
+                                    src={selectedScenarioStep.image}
+                                    alt={`${selectedScenarioStep.title} 실행 화면 크게 보기`}
+                                    onError={(event) => {
+                                        event.currentTarget.style.display = 'none';
+                                    }}
+                                />
+                                <span className="main-scenario-placeholder modal-placeholder">
+                                    <span>SCREENSHOT</span>
+                                    <small>{selectedScenarioStep.image}</small>
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </section>
         </main>
     );

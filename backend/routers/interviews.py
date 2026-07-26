@@ -1168,9 +1168,10 @@ async def websocket_interview_endpoint(
     """실시간 WebSocket 면접 제어"""
     await websocket.accept()
 
+    # 🚀 1. 사용자의 고유 ID(user_id)를 함께 가져오도록 쿼리 수정 (과거 기록 비교용)
     result = db.execute(
         text("""
-            SELECT questions, job_category
+            SELECT questions, job_category, user_id
             FROM interview_sessions
             WHERE id = CAST(:id AS UUID)
         """),
@@ -1183,6 +1184,7 @@ async def websocket_interview_endpoint(
 
     questions_raw = result[0]
     job_category = result[1]
+    user_id = str(result[2])
 
     if isinstance(questions_raw, str):
         questions_list = json.loads(questions_raw)
@@ -1194,7 +1196,6 @@ async def websocket_interview_endpoint(
     accumulated_score = 0
     selected_candidates: list[dict] = []
     
-    # 시선 이탈(Vision 분석) 카운터 초기화
     current_gaze_loss_count = 0 
 
     try:
@@ -1233,7 +1234,6 @@ async def websocket_interview_endpoint(
                     selected_candidates,
                 )
 
-            # 🚀 수정: 프론트엔드에서 주기적으로 전송하는 웹캠 프레임 분석 및 기준점 적용
             elif message_type == "video_frame":
                 # 사용자가 녹음(음성 답변) 중일 때만 시선 분석 수행
                 is_recording = data.get("is_recording", False)
@@ -1290,14 +1290,65 @@ async def websocket_interview_endpoint(
                     if rag_result
                     else ""
                 )
-                
-                # 습관어(Filler word) 분석 실행
-                filler_count, found_fillers = count_filler_words(user_text)
 
+                filler_count, found_fillers = count_filler_words(user_text)
+                
+                # 🚀 2. 현재 답변의 주요 지표 수집
+                current_metrics = {
+                    "jitter": jitter_delta,
+                    "shimmer": shimmer_delta,
+                    "filler": filler_count,
+                    "gaze": current_gaze_loss_count
+                }
+
+                # 🚀 3. 현재 사용자 답변의 벡터 임베딩 생성 (RAG용)
+                try:
+                    with ExecutionTimer("답변 텍스트 임베딩 생성"):
+                        current_answer_emb = get_embedding(user_text)
+                except Exception as e:
+                    logger.error(f"[답변 임베딩 에러]: {e}")
+                    current_answer_emb = None
+
+                past_record = None
+                
+                # 🚀 4. 임베딩이 성공적으로 생성되었다면, 의미상 가장 유사한 과거 답변 벡터 검색 (RAG)
+                if current_answer_emb:
+                    past_record_query = text("""
+                        SELECT q.question, q.transcribed_text, q.score, 
+                               q.jitter_shaken_percentage, q.shimmer_shaken_percentage, 
+                               q.filler_word_count, q.gaze_loss_count
+                        FROM qa_logs q
+                        JOIN interview_sessions s ON q.session_id = s.id
+                        WHERE s.user_id = CAST(:user_id AS UUID)
+                          AND s.id != CAST(:current_session_id AS UUID)
+                          AND q.answer_embedding IS NOT NULL
+                        ORDER BY q.answer_embedding <=> CAST(:current_ans_emb AS vector)
+                        LIMIT 1
+                    """)
+                    past_log = db.execute(past_record_query, {
+                        "user_id": user_id, 
+                        "current_session_id": session_id,
+                        "current_ans_emb": str(current_answer_emb)
+                    }).fetchone()
+                    
+                    if past_log:
+                        past_record = {
+                            "past_question": past_log[0],
+                            "past_answer": past_log[1],
+                            "past_score": past_log[2],
+                            "past_jitter": past_log[3],
+                            "past_shimmer": past_log[4],
+                            "past_filler": past_log[5],
+                            "past_gaze": past_log[6]
+                        }
+
+                # 🚀 5. 수정된 LLM 평가 함수 호출 (과거 기록과 현재 지표를 함께 전달)
                 evaluation = evaluate_answer_with_llm(
                     current_question_text,
                     user_text,
                     ideal_answer,
+                    current_metrics=current_metrics,
+                    past_record=past_record
                 )
 
                 earned_score = evaluation.get("score", 0)
@@ -1307,27 +1358,21 @@ async def websocket_interview_endpoint(
                 )
                 accumulated_score += earned_score
                 
-                # 🚀 [추가 기능] 면접관의 답변 점수를 기반으로 자연스러운 랜덤 리액션 문구 배정
-                # 만족/불만족 아바타 선택 기준(프론트엔드, 50점)과 맞춰서 2단계로 통일합니다.
-                if earned_score >= 50:
-                    reaction_text = random.choice([
-                        "네, 구체적인 설명 잘 들었습니다. 다음 질문으로 넘어가겠습니다.",
-                        "좋은 답변 감사합니다. 이어서 다음 질문 드릴게요.",
-                        "네, 명확하게 이해했습니다. 다음 질문으로 넘어가겠습니다.",
-                    ])
-                else:
-                    reaction_text = random.choice([
-                        "음, 알겠습니다. 답변 잘 들었습니다.",
-                        "네, 우선 그 부분은 알겠습니다. 다음 질문으로 넘어가 볼게요.",
-                        "네, 답변 감사합니다. 다음 질문 드리겠습니다.",
-                    ])
+                # 🚀 6. LLM이 생성한 리액션 문구 및 성장 피드백 추출
+                reaction_text = evaluation.get("ack_phrase", "네, 알겠습니다.")
+                growth_feedback = evaluation.get("growth_feedback", "")
 
                 # 피드백 텍스트에 습관어 및 시선 처리 경고 문구 덧붙이기
                 if filler_count > 0:
                     feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다. 불필요한 습관어는 전문성을 떨어뜨릴 수 있으니 유의해 주세요."
                 if current_gaze_loss_count >= 3:
                     feedback_text += f"\n\n[태도 교정]: 답변 중 화면 밖으로 시선이 벗어난 횟수가 {current_gaze_loss_count}회 감지되었습니다. 면접관과 눈을 맞추듯 렌즈를 응시하세요."
+                
+                # 🚀 7. 과거 비교 피드백이 존재하면 최종 피드백에 덧붙임
+                if growth_feedback:
+                    feedback_text += f"\n\n[성장 분석]: {growth_feedback}"
 
+                # 🚀 8. DB Insert 쿼리에 answer_embedding 추가 반영
                 log_query = text("""
                     INSERT INTO qa_logs (
                         session_id,
@@ -1339,7 +1384,8 @@ async def websocket_interview_endpoint(
                         score,
                         feedback,
                         filler_word_count,
-                        gaze_loss_count
+                        gaze_loss_count,
+                        answer_embedding
                     )
                     VALUES (
                         CAST(:session_id AS UUID),
@@ -1351,7 +1397,8 @@ async def websocket_interview_endpoint(
                         :score,
                         :feedback,
                         :filler,
-                        :gaze
+                        :gaze,
+                        CAST(:answer_embedding AS vector)
                     )
                 """)
 
@@ -1368,6 +1415,7 @@ async def websocket_interview_endpoint(
                         "feedback": feedback_text,
                         "filler": filler_count,
                         "gaze": current_gaze_loss_count,
+                        "answer_embedding": str(current_answer_emb) if current_answer_emb else None
                     },
                 )
                 db.commit()
@@ -1392,7 +1440,7 @@ async def websocket_interview_endpoint(
                 })
 
                 current_index += 1
-                current_gaze_loss_count = 0 # 다음 문항을 위해 시선 이탈 횟수 초기화
+                current_gaze_loss_count = 0 
 
                 if current_index < total_questions:
                     await send_next_question(
