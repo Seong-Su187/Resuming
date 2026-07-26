@@ -34,7 +34,8 @@ from ragas.metrics.collections import Faithfulness
 RESULT_JSON_PATH = os.path.join(os.path.dirname(__file__), "growth_feedback_eval_results.json")
 RESULT_MD_PATH = os.path.join(os.path.dirname(__file__), "growth_feedback_eval_results.md")
 
-JUDGE_MODEL = "gpt-4.1-mini"  # 채점(gpt-4o-mini)과 다른 계열 모델. 속도를 위해 mini급으로 선택.
+JUDGE_MODEL = "gpt-4o-mini"  # gpt-4.1-mini는 growth_feedback처럼 길고 복잡한 한국어 텍스트를
+# 구조화된 형식(statement 분해)으로 처리할 때 원문과 무관한 내용을 만들어내는 문제가 있어 교체함.
 
 # 6개를 전부 동시에 쏘면 OpenAI 레이트리밋에 걸려 재시도 대기가 길어질 수 있어 동시 실행 수를 제한합니다.
 CONCURRENCY_LIMIT = 2
@@ -261,7 +262,10 @@ async def evaluate_one(candidate, pool_embs, case_idx, faithfulness_scorer):
 
         print(f"[growth_eval] {tag} RAGAS Faithfulness 판정 시작", flush=True)
         faithfulness_result = await faithfulness_scorer.ascore(
-            user_input="과거 답변과 현재 답변을 비교해서 성장한 점을 분석해줘.",
+            # RAGAS의 statement 생성 프롬프트는 few-shot 예시가 전부 일반 의문문(WH-question) 형태라,
+            # 명령문("~분석해줘")을 넣으면 문장 분해 단계가 엉뚱한 내용을 만들어내는 문제가 있었음.
+            # 예시와 같은 질문 형태로 바꿔서 이 문제를 회피함.
+            user_input="과거 답변과 비교했을 때 현재 답변에서 어떤 점이 성장했나요?",
             response=growth_feedback if growth_feedback else "(성장 피드백 없음)",
             retrieved_contexts=[context_text],
         )
