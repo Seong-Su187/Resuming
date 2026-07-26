@@ -10,13 +10,14 @@ import httpx
 import subprocess
 import random
 import logging
+import difflib 
 from datetime import datetime
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, Depends, UploadFile, File, Form, Body
 from fastapi.responses import FileResponse, StreamingResponse, Response
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 from PyPDF2 import PdfReader
-import pdfkit # 🚀 WeasyPrint를 대체하는 가장 안정적인 모듈
+import pdfkit 
 
 from schemas import SessionCreateRequest
 from database import get_db
@@ -34,20 +35,14 @@ from llm import (
     AVATAR_VOICE_MAP
 )
 
-# 🚀 성능 측정용 로거 임포트 추가
 from logger_config import log_execution_time, ExecutionTimer
 
-# 에러 로깅용 로거
 logger = logging.getLogger(__name__)
 
 def convert_audio_to_wav(
     input_path: str,
     output_path: str,
 ) -> None:
-    """
-    브라우저에서 녹음된 WebM/Opus 음성을
-    분석 가능한 mono 16-bit PCM WAV로 변환합니다.
-    """
     try:
         result = subprocess.run(
             [
@@ -99,10 +94,6 @@ async def build_candidate_answers(
     question_text: str,
     selected_candidates: list[dict],
 ) -> list[dict]:
-    """
-    선택된 지원자별 성향을 반영한 답변을 병렬로 생성합니다.
-    특정 지원자의 생성이 실패해도 나머지 지원자의 면접은 계속 진행합니다.
-    """
     async def generate_one(candidate: dict) -> dict:
         candidate_id = candidate.get("id")
         candidate_name = candidate.get("name", "지원자")
@@ -138,9 +129,6 @@ async def build_candidate_answers(
 
 
 async def _generate_tts_fallback_base64(text: str, voice: str) -> str | None:
-    """
-    아바타 영상 스트리밍이 실패했을 때 프론트가 대신 재생할 음성만 미리 만들어둡니다.
-    """
     tts_path = f"temp_fallback_tts_{uuid.uuid4()}.mp3"
     try:
         await asyncio.to_thread(generate_text_to_speech, text, tts_path, voice)
@@ -162,47 +150,41 @@ async def send_next_question(
     current_index: int,
     total_questions: int,
     selected_candidates: list[dict],
+    reaction_text: str = "", 
 ):
-    """
-    질문 영상과 선택된 지원자들의 질문별 답변을 함께 전송합니다.
-    프론트엔드는 candidate_answers를 무작위 순서와 간격으로 재생합니다.
-    """
-    # 과거 호환성 및 객체형 데이터 분기 처리
     question_text = question_data if isinstance(question_data, str) else question_data.get("question", "")
     q_type = "technical" if isinstance(question_data, str) else question_data.get("type", "technical")
     avatar = "middle_aged" if isinstance(question_data, str) else question_data.get("avatar", "middle_aged")
     voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
 
+    full_audio_text = f"{reaction_text} {question_text}" if reaction_text else question_text
+
     candidate_answers_task = asyncio.create_task(
         build_candidate_answers(
-            question_text,
+            question_text, 
             selected_candidates,
         )
     )
     tts_fallback_task = asyncio.create_task(
-        _generate_tts_fallback_base64(question_text, voice)
+        _generate_tts_fallback_base64(full_audio_text, voice)
     )
 
-    # 듀오 서버 테스트용 임시 매핑: 백엔드의 "hr" 타입 = 듀오 노트북의 "personality" 아바타
     duo_avatar_type = "personality" if q_type == "hr" else q_type
 
     payload = {
         "type": "next_question",
         "current_index": current_index,
         "total_questions": total_questions,
-        "question_text": question_text,
+        "reaction_text": reaction_text,       
+        "question_text": question_text,       
+        "full_audio_text": full_audio_text,   
         "interviewer_type": q_type,
         "avatar": avatar,
         "duo_avatar_type": duo_avatar_type,
-        "tts_audio_base64": None,  # 아바타 영상 스트리밍 실패 대비 음성만이라도 재생하기 위한 fallback
+        "tts_audio_base64": None,  
         "candidate_answers": [],
     }
 
-    # 아바타 영상은 더 이상 여기서 만들어 기다렸다가 통째로 보내지 않습니다.
-    # 프론트가 질문 텍스트를 받는 즉시 /interviews/avatar-video-stream을 직접 호출해서
-    # MuseTalk 스트리밍 응답을 받아 재생합니다 (완성될 때까지 기다리지 않아도 됨).
-    # tts_audio_base64는 그 스트리밍이 실패했을 때만 프론트가 대신 재생할 fallback이라,
-    # candidate_answers와 마찬가지로 텍스트 전송과 병렬로 준비해서 지연을 최소화합니다.
     payload["tts_audio_base64"] = await tts_fallback_task
     payload["candidate_answers"] = await candidate_answers_task
 
@@ -210,10 +192,6 @@ async def send_next_question(
 
 
 def split_into_sentences(text: str) -> list[str]:
-    """
-    문장 종결부호(. ? !) 기준으로 텍스트를 나눕니다.
-    너무 짧은 조각(5자 미만)은 앞 문장에 이어붙여서, 지나치게 잘게 쪼개지지 않게 합니다.
-    """
     raw_parts = re.split(r"(?<=[.!?])\s+", text.strip())
     sentences = [part.strip() for part in raw_parts if part.strip()]
 
@@ -241,12 +219,6 @@ async def _generate_tts_chunk_base64(text: str, voice: str) -> str:
 @router.post("/avatar-video-stream")
 @log_execution_time("아바타 스트리밍 전체 과정 (avatar_video_stream)")
 async def avatar_video_stream(payload: dict = Body(...)):
-    """
-    질문 텍스트를 문장 단위로 쪼개서 TTS를 순차 생성하고, 문장이 준비되는 대로
-    바로 Colab 듀오 서버의 실시간 스트리밍 엔드포인트로 보내 이어붙여 중계합니다.
-    (실험: 문장 단위 파이프라이닝 — 다음 문장 TTS는 이전 문장 영상 스트리밍과 병렬로 미리 생성)
-    프론트는 전체 영상이 완성되길 기다리지 않고 MediaSource로 도착하는 대로 재생합니다.
-    """
     question_text = payload.get("text", "")
     avatar = payload.get("avatar", "middle_aged")
     duo_avatar_type = payload.get("duo_avatar_type", "technical")
@@ -274,7 +246,6 @@ async def avatar_video_stream(payload: dict = Body(...)):
                 audio_base64 = await next_audio_task
                 print(f"[stream-timing] 문장{i + 1} TTS 완료: {time.time() - t0:.2f}초", flush=True)
 
-                # 다음 문장 TTS는 지금 문장 영상이 스트리밍되는 동안 병렬로 미리 준비
                 if i + 1 < len(sentences):
                     next_audio_task = asyncio.create_task(
                         _generate_tts_chunk_base64(sentences[i + 1], voice)
@@ -294,10 +265,6 @@ async def avatar_video_stream(payload: dict = Body(...)):
                                 f"(status={response.status_code}): {error_body[:200]!r}",
                                 flush=True,
                             )
-                            # 코랩 서버(혹은 ngrok 터널)가 꺼져있으면 연결 자체는 되고
-                            # ngrok의 에러 페이지(HTML)가 정상 응답으로 돌아오는 경우가 있습니다.
-                            # 이 바이트를 영상인 것처럼 그대로 흘려보내면 프런트에서 MediaSource
-                            # 디먹서 오류로 깨지므로, 여기서 스트림을 끊어 빈 스트림으로 끝냅니다.
                             return
                         async for chunk in response.aiter_bytes():
                             if not first_chunk_logged:
@@ -317,21 +284,15 @@ async def avatar_video_stream(payload: dict = Body(...)):
     return StreamingResponse(proxy_stream(), media_type="video/mp4")
 
 
-# 🚀 신규: 영점 조절 프레임 분석 엔드포인트
 @router.post("/calibrate-vision")
 @log_execution_time("웹캠 시선 영점 분석 (calibrate_vision_endpoint)")
 async def calibrate_vision_endpoint(payload: dict = Body(...)):
-    """
-    웹캠 영점 조절(Calibration)을 위해 캡처된 프레임들을 받아 분석합니다.
-    분석을 통해 사용자의 고유한 코(Nose)와 홍채(Iris) 기준점 위치를 반환합니다.
-    """
     frames = payload.get("frames", [])
     
     if not frames:
         return {"baseline_nose": 0.5, "baseline_iris": 0.5}
 
     try:
-        # vision_analyzer에 calculate_baselines가 새로 추가되었다고 가정하고 임포트
         from vision_analyzer import calculate_baselines
         nose, iris = calculate_baselines(frames)
         return {
@@ -339,7 +300,6 @@ async def calibrate_vision_endpoint(payload: dict = Body(...)):
             "baseline_iris": iris
         }
     except ImportError:
-        # 아직 vision_analyzer.py에 구현이 안되어 있을 경우 기본 중앙값으로 Fallback 처리
         return {"baseline_nose": 0.5, "baseline_iris": 0.5}
     except Exception as e:
         print(f"[Calibration Error] 영점 조절 분석 중 오류: {e}")
@@ -348,7 +308,6 @@ async def calibrate_vision_endpoint(payload: dict = Body(...)):
 
 @router.post("/session")
 def create_interview_session(data: SessionCreateRequest, db: Session = Depends(get_db)):
-    """신규 모의 면접 세션을 생성하고 고유 세션 ID 반환 API"""
     try:
         query = text("""
             INSERT INTO interview_sessions (user_id, job_category)
@@ -374,17 +333,12 @@ def create_interview_session(data: SessionCreateRequest, db: Session = Depends(g
 
 @log_execution_time("이력서 RAG 질문 생성 전체 프로세스 (_generate_rag_questions)")
 def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, db: Session) -> list:
-    """[핵심 로직] 전체 RAG 파이프라인(분할-임베딩-검색-생성)을 구동합니다."""
     print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작")
     
     with ExecutionTimer("RAG - 청크 임베딩 및 DB 적재", session_id=session_id):
-        # 1. Chunking: 이력서를 문단/길이 단위로 분할
         chunks = split_resume_text(resume_text)
-        
-        # 2. 기존 데이터 클렌징: 동일 세션에서 이력서를 재업로드할 경우를 대비해 기존 청크 삭제 (CAST 적용)
         db.execute(text("DELETE FROM resume_chunks WHERE session_id = CAST(:id AS UUID)"), {"id": session_id})
         
-        # 3. 청크별 임베딩 생성 및 DB 적재 (CAST 적용)
         for chunk in chunks:
             emb = get_embedding(chunk)
             db.execute(text("""
@@ -393,11 +347,10 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             """), {
                 "session_id": session_id,
                 "content": chunk,
-                "embedding": str(emb) # SQLAlchemy에서 배열을 전달할 때 문자열로 매핑
+                "embedding": str(emb) 
             })
         db.commit()
 
-    # 4. RAG 검색 의도 5가지 정의 (HR 질문이 명확하게 나오도록 쿼리 수정)
     search_queries = [
         ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged"),
         ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged"),
@@ -407,13 +360,12 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
     ]
 
     generated_questions = []
+    previous_question_texts = [] 
     
     with ExecutionTimer("RAG - 의도별 벡터 검색 및 LLM 질문 생성", session_id=session_id):
-        # 5. 의도별 검색(Retrieval) 및 생성(Generation) (CAST 적용)
         for intent, q_type, avatar in search_queries:
             q_emb = get_embedding(intent)
             
-            # 코사인 거리(<=>) 기준으로 가장 유사한 Top 3 청크 검색
             top_chunks = db.execute(text("""
                 SELECT content 
                 FROM resume_chunks
@@ -426,21 +378,25 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             }).fetchall()
             
             context = "\n\n".join([row[0] for row in top_chunks])
-            question_data = generate_single_question(job_category, intent, context, q_type, avatar)
+            
+            question_data = generate_single_question(
+                job_category, 
+                intent, 
+                context, 
+                q_type, 
+                avatar, 
+                previous_questions=previous_question_texts
+            )
+            
             generated_questions.append(question_data)
+            previous_question_texts.append(question_data.get("question", ""))
 
-    # 6. 질문 순서 섞기
     random.shuffle(generated_questions)
     return generated_questions
 
 
 @log_execution_time("GitHub 링크 탐색 및 내용 추출 (extract_github_content)")
 async def extract_github_content(text: str) -> str:
-    """
-    이력서 텍스트 내의 GitHub URL을 찾아 해당 프로필의 최근 레포지토리나
-    특정 레포지토리의 설명 및 README 데이터를 추출하여 문자열로 반환합니다.
-    """
-    # 1. 정규식으로 github.com URL 추출 (프로필 URL 또는 특정 레포 URL 모두 감지)
     github_urls = re.findall(r"https?://(?:www\.)?github\.com/([a-zA-Z0-9-]+)(?:/([a-zA-Z0-9_.-]+))?", text)
     
     if not github_urls:
@@ -448,13 +404,10 @@ async def extract_github_content(text: str) -> str:
         
     combined_github_content = "\n\n[🚀 지원자 GitHub 프로젝트 및 활동 요약 (RAG Context)]\n"
     
-    # 2. 비동기 HTTP 통신으로 GitHub API 호출
     async with httpx.AsyncClient(timeout=10.0) as client:
-        # 중복 URL 방지를 위해 set 처리
         for username, repo_name in set(github_urls):
             try:
                 if repo_name:
-                    # [A] 특정 레포지토리 주소인 경우 (예: github.com/user/repo)
                     api_url = f"https://api.github.com/repos/{username}/{repo_name}"
                     repo_res = await client.get(api_url)
                     
@@ -463,14 +416,11 @@ async def extract_github_content(text: str) -> str:
                         desc = repo_data.get("description", "설명 없음")
                         combined_github_content += f"\n- 프로젝트명: {repo_name} (소유자: {username})\n- 프로젝트 설명: {desc}\n"
                         
-                        # README 내용 가져오기 (Accept 헤더를 통해 마크다운 raw 텍스트로 바로 받기)
                         readme_url = f"https://api.github.com/repos/{username}/{repo_name}/readme"
                         readme_res = await client.get(readme_url, headers={"Accept": "application/vnd.github.v3.raw"})
                         if readme_res.status_code == 200:
-                            # 너무 길면 RAG 토큰 낭비 방지를 위해 1000자 이내로 자름
                             combined_github_content += f"- README 주요 내용: {readme_res.text[:1000]}...\n"
                 else:
-                    # [B] 유저 프로필 주소인 경우 (예: github.com/user) -> 최근 업데이트된 public 레포 최대 3개 탐색
                     api_url = f"https://api.github.com/users/{username}/repos?sort=pushed&per_page=3"
                     repos_res = await client.get(api_url)
                     
@@ -481,7 +431,6 @@ async def extract_github_content(text: str) -> str:
                             r_desc = repo.get("description", "설명 없음")
                             combined_github_content += f"\n- 프로젝트명: {r_name}\n- 프로젝트 설명: {r_desc}\n"
                             
-                            # 각 레포의 README 시도
                             readme_url = f"https://api.github.com/repos/{username}/{r_name}/readme"
                             readme_res = await client.get(readme_url, headers={"Accept": "application/vnd.github.v3.raw"})
                             if readme_res.status_code == 200:
@@ -496,13 +445,11 @@ async def extract_github_content(text: str) -> str:
 @router.post("/{session_id}/upload-resume")
 @log_execution_time("이력서 PDF 처리 및 맞춤 질문 생성 API (upload_resume_and_generate_questions)")
 async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """PDF 이력서를 업로드받아 텍스트를 추출하고 5개의 맞춤 질문을 생성하여 DB에 저장합니다."""
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
 
     try:
         with ExecutionTimer("PDF 파일에서 텍스트 추출", session_id=session_id):
-            # 1. PDF 텍스트 추출
             file_content = await file.read()
             pdf_reader = PdfReader(io.BytesIO(file_content))
             resume_text = ""
@@ -511,12 +458,10 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
                 if extracted:
                     resume_text += extracted + "\n"
 
-        # 🚀 [신규 연동] 이력서 텍스트 안에서 GitHub 주소 감지 및 README 데이터 추출
         github_content = await extract_github_content(resume_text)
         if github_content:
-            resume_text += github_content  # 추출된 깃허브 정보를 기존 이력서 텍스트 맨 뒤에 이어붙임 (RAG 청크화 대상에 포함됨)
+            resume_text += github_content 
 
-        # 2. 세션 정보 조회하여 직무(job_category) 가져오기
         session_query = text("SELECT job_category FROM interview_sessions WHERE id = CAST(:id AS UUID)")
         session_info = db.execute(session_query, {"id": session_id}).fetchone()
         if not session_info:
@@ -524,10 +469,8 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
             
         job_category = session_info[0]
 
-        # 3. [RAG 파이프라인 적용] 추출된 이력서 텍스트를 바탕으로 RAG 5가지 맞춤 질문 생성
         generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
 
-        # 4. 추출된 이력서와 생성된 질문 배열을 DB에 저장
         update_query = text("""
             UPDATE interview_sessions 
             SET resume_text = :resume_text, questions = :questions 
@@ -552,7 +495,6 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
 
 @router.get("/resume/{user_id}")
 def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
-    """사용자가 이전에 등록한 최근 이력서 조회"""
     try:
         query = text("""
             SELECT resume_text
@@ -596,7 +538,6 @@ def use_existing_resume(
     user_id: str,
     db: Session = Depends(get_db)
 ):
-    """사용자의 최근 이력서를 현재 면접 세션에서 재사용"""
     try:
         resume_query = text("""
             SELECT resume_text
@@ -640,7 +581,6 @@ def use_existing_resume(
 
         job_category = session_result[0]
 
-        # [RAG 파이프라인 적용] 기존 이력서 텍스트를 바탕으로 RAG 생성
         generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
 
         update_query = text("""
@@ -683,7 +623,6 @@ def get_baseline_voice(
     user_id: str,
     db: Session = Depends(get_db),
 ):
-    """사용자의 기존 기본 음성 분석 정보 조회"""
     try:
         query = text("""
             SELECT
@@ -749,10 +688,6 @@ async def save_baseline_voice(
     audio_file: UploadFile = File(...),
     db: Session = Depends(get_db),
 ):
-    """
-    사용자의 평상시 음성을 분석하고
-    jitter, shimmer, wpm을 profiles 테이블에 저장합니다.
-    """
     file_id = uuid.uuid4()
 
     temp_webm_path = f"temp_baseline_{file_id}.webm"
@@ -770,14 +705,12 @@ async def save_baseline_voice(
         with open(temp_webm_path, "wb") as buffer:
             buffer.write(audio_content)
 
-        # WebM/Opus → WAV 변환
         with ExecutionTimer("기본 음성 WAV 포맷 변환"):
             convert_audio_to_wav(
                 temp_webm_path,
                 temp_wav_path,
             )
 
-        # 변환된 WAV 파일로 STT 수행
         with ExecutionTimer("기본 음성 STT 텍스트 변환"):
             transcribed_text = process_audio_to_text(
                 temp_wav_path,
@@ -789,7 +722,6 @@ async def save_baseline_voice(
                 detail="음성을 인식하지 못했습니다. 조금 더 크게 다시 읽어주세요.",
             )
 
-        # WAV 파일로 음성 지표 분석
         with ExecutionTimer("기본 음성 WPM, Jitter 등 분석"):
             metrics = extract_voice_metrics(
                 temp_wav_path,
@@ -895,7 +827,6 @@ async def process_interview_audio(
     audio_file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """면접관 질문에 대한 사용자 답변 오디오를 받아 STT 및 평음 대조 떨림 분석"""
     file_id = uuid.uuid4()
     temp_webm_path = f"temp_answer_{file_id}.webm"
     temp_wav_path = f"temp_answer_{file_id}.wav"
@@ -958,7 +889,6 @@ async def process_interview_audio(
 @router.post("/tts")
 @log_execution_time("단독 텍스트 투 스피치 합성 (text_to_speech)")
 async def text_to_speech(text_payload: dict):
-    """텍스트와 아바타 종류("young" | "middle_aged")를 받아 그에 맞는 목소리의 음성 파일(mp3)로 반환"""
     text = text_payload.get("text", "")
     avatar = text_payload.get("avatar", "middle_aged")
     voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
@@ -973,9 +903,7 @@ async def text_to_speech(text_payload: dict):
 
 @router.get("/{session_id}/result")
 def get_interview_results(session_id: str, db: Session = Depends(get_db)):
-    """최종 결과 조회 및 과거 면접 기록과 비교한 성장 추이 반환"""
     try:
-        # 1. 현재 세션 정보 조회
         session_query = text("SELECT user_id, overall_score, overall_feedback, created_at FROM interview_sessions WHERE id = CAST(:id AS UUID)")
         current_session = db.execute(session_query, {"id": session_id}).fetchone()
         
@@ -987,7 +915,6 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         curr_feedback = current_session[2]
         curr_date = current_session[3]
 
-        # 2. 현재 세션의 상세 로그 조회 (습관어, 시선 이탈 컬럼 추가)
         logs = db.execute(
             text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count FROM qa_logs WHERE session_id = CAST(:s AS UUID) ORDER BY created_at ASC"), 
             {"s": session_id}
@@ -1001,7 +928,6 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
                 "filler_count": r[6], "gaze_loss": r[7]
             })
 
-        # 3. 유저의 과거 면접 기록 전체 조회 (트렌드 분석)
         history_query = text("""
             SELECT id, overall_score, created_at 
             FROM interview_sessions 
@@ -1014,7 +940,6 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         for hs in history_sessions:
             hs_id = hs[0]
             
-            # 해당 과거 세션의 평균 떨림 수치 계산
             past_logs = db.execute(
                 text("SELECT AVG(jitter_shaken_percentage), AVG(shimmer_shaken_percentage) FROM qa_logs WHERE session_id = CAST(:hs_id AS UUID)"), 
                 {"hs_id": hs_id}
@@ -1031,7 +956,6 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
                 "avg_shimmer_shaken": round(float(p_shimmer), 2)
             })
             
-        # 4. 직전 대비 개선도 (Improvement) 계산 및 다이내믹 메시지 생성
         improvement = {
             "score_diff": 0,
             "jitter_diff": 0,
@@ -1039,8 +963,8 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         }
         
         if len(trend_data) >= 2:
-            prev = trend_data[-2] # 직전 세션
-            curr = trend_data[-1] # 현재 세션
+            prev = trend_data[-2] 
+            curr = trend_data[-1] 
             
             score_diff = curr["score"] - prev["score"]
             jitter_diff = curr["avg_jitter_shaken"] - prev["avg_jitter_shaken"]
@@ -1068,15 +992,10 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==========================================
-# 🚀 WeasyPrint 대신 안정적인 pdfkit으로 PDF 생성
-# ==========================================
 @router.get("/{session_id}/pdf")
 @log_execution_time("최종 결과물 리포트 생성 (download_interview_pdf_report)")
 def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)):
-    """면접 결과를 PDF 리포트로 구워서 반환합니다."""
     try:
-        # DB 데이터 조회
         data = get_interview_results(session_id, db)
         
         html_content = f"""
@@ -1108,7 +1027,6 @@ def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)
         """
         
         for i, detail in enumerate(data['details']):
-            # None 방지 및 줄바꿈 처리
             feedback_text = (detail['feedback'] or '').replace('\n', '<br>')
             html_content += f"""
             <div class="question-box">
@@ -1126,13 +1044,11 @@ def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)
             
         html_content += "</body></html>"
         
-        # 1. 시스템에 설치된 wkhtmltopdf 경로 찾기 (기본값)
         wkhtmltopdf_path = r"C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe"
         
         if os.path.exists(wkhtmltopdf_path):
             config = pdfkit.configuration(wkhtmltopdf=wkhtmltopdf_path)
         else:
-            # 환경변수에 등록되어 있거나 리눅스인 경우
             config = pdfkit.configuration()
             
         options = {
@@ -1146,7 +1062,6 @@ def download_interview_pdf_report(session_id: str, db: Session = Depends(get_db)
             'enable-local-file-access': None
         }
         
-        # 2. PDF 메모리 변환 수행
         with ExecutionTimer("PDFKit 메모리 변환 실행"):
             pdf_bytes = pdfkit.from_string(html_content, False, configuration=config, options=options)
         
@@ -1165,10 +1080,8 @@ async def websocket_interview_endpoint(
     session_id: str,
     db: Session = Depends(get_db),
 ):
-    """실시간 WebSocket 면접 제어"""
     await websocket.accept()
 
-    # 🚀 1. 사용자의 고유 ID(user_id)를 함께 가져오도록 쿼리 수정 (과거 기록 비교용)
     result = db.execute(
         text("""
             SELECT questions, job_category, user_id
@@ -1232,10 +1145,10 @@ async def websocket_interview_endpoint(
                     current_index + 1,
                     total_questions,
                     selected_candidates,
+                    reaction_text="",
                 )
 
             elif message_type == "video_frame":
-                # 사용자가 녹음(음성 답변) 중일 때만 시선 분석 수행
                 is_recording = data.get("is_recording", False)
                 
                 if is_recording:
@@ -1245,11 +1158,9 @@ async def websocket_interview_endpoint(
                     
                     if b64_image:
                         try:
-                            # 영점 조절된 기준값을 반영하여 시선 이탈 여부 판단
                             if check_gaze_loss(b64_image, baseline_nose, baseline_iris):
                                 current_gaze_loss_count += 1
                         except TypeError:
-                            # vision_analyzer.py의 check_gaze_loss가 아직 새 파라미터를 받지 못하는 경우 Fallback
                             if check_gaze_loss(b64_image):
                                 current_gaze_loss_count += 1
 
@@ -1272,7 +1183,6 @@ async def websocket_interview_endpoint(
                 )
 
                 current_q_data = questions_list[current_index]
-                # 과거 호환성 고려 (단순 문자열 배열일 경우 대비)
                 current_question_text = current_q_data if isinstance(current_q_data, str) else current_q_data.get("question", "")
 
                 rag_result = db.execute(
@@ -1293,7 +1203,6 @@ async def websocket_interview_endpoint(
 
                 filler_count, found_fillers = count_filler_words(user_text)
                 
-                # 🚀 2. 현재 답변의 주요 지표 수집
                 current_metrics = {
                     "jitter": jitter_delta,
                     "shimmer": shimmer_delta,
@@ -1301,7 +1210,6 @@ async def websocket_interview_endpoint(
                     "gaze": current_gaze_loss_count
                 }
 
-                # 🚀 3. 현재 사용자 답변의 벡터 임베딩 생성 (RAG용)
                 try:
                     with ExecutionTimer("답변 텍스트 임베딩 생성"):
                         current_answer_emb = get_embedding(user_text)
@@ -1311,7 +1219,6 @@ async def websocket_interview_endpoint(
 
                 past_record = None
                 
-                # 🚀 4. 임베딩이 성공적으로 생성되었다면, 의미상 가장 유사한 과거 답변 벡터 검색 (RAG)
                 if current_answer_emb:
                     past_record_query = text("""
                         SELECT q.question, q.transcribed_text, q.score, 
@@ -1342,7 +1249,6 @@ async def websocket_interview_endpoint(
                             "past_gaze": past_log[6]
                         }
 
-                # 🚀 5. 수정된 LLM 평가 함수 호출 (과거 기록과 현재 지표를 함께 전달)
                 evaluation = evaluate_answer_with_llm(
                     current_question_text,
                     user_text,
@@ -1358,21 +1264,34 @@ async def websocket_interview_endpoint(
                 )
                 accumulated_score += earned_score
                 
-                # 🚀 6. LLM이 생성한 리액션 문구 및 성장 피드백 추출
-                reaction_text = evaluation.get("ack_phrase", "네, 알겠습니다.")
+                # 🚀 6. 리액션 문구 배정 (50점 기준 얼떨떨함/긍정 풀링 적용)
+                if earned_score >= 50:
+                    reaction_text = random.choice([
+                        "네, 구체적인 설명 잘 들었습니다. 그럼 다음 질문 드릴게요.",
+                        "좋습니다. 명확하게 이해했습니다. 이어서 질문 드리죠.",
+                        "네, 답변 잘 들었습니다. 그럼 다음 질문으로 넘어가겠습니다.",
+                        "좋은 경험이네요. 답변 감사합니다. 다음 질문 드리겠습니다."
+                    ])
+                else:
+                    # 50점 미만: 얼떨떨하고 조금 당황/부정적인 리액션
+                    reaction_text = random.choice([
+                        "아... 네, 알겠습니다. 다음 질문 드릴게요.",
+                        "음... 네, 일단 알겠습니다. 이어서 질문드리죠.",
+                        "아, 네... 확인했습니다. 다음 질문으로 넘어가겠습니다.",
+                        "네... 조금 당황스러운데, 알겠습니다. 다음 질문 드릴게요.",
+                        "아... 질문의 의도와는 조금 다른 것 같지만, 알겠습니다. 다음 질문 드리죠."
+                    ])
+                
                 growth_feedback = evaluation.get("growth_feedback", "")
-
-                # 피드백 텍스트에 습관어 및 시선 처리 경고 문구 덧붙이기
+                
                 if filler_count > 0:
                     feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다. 불필요한 습관어는 전문성을 떨어뜨릴 수 있으니 유의해 주세요."
                 if current_gaze_loss_count >= 3:
                     feedback_text += f"\n\n[태도 교정]: 답변 중 화면 밖으로 시선이 벗어난 횟수가 {current_gaze_loss_count}회 감지되었습니다. 면접관과 눈을 맞추듯 렌즈를 응시하세요."
                 
-                # 🚀 7. 과거 비교 피드백이 존재하면 최종 피드백에 덧붙임
                 if growth_feedback:
                     feedback_text += f"\n\n[성장 분석]: {growth_feedback}"
 
-                # 🚀 8. DB Insert 쿼리에 answer_embedding 추가 반영
                 log_query = text("""
                     INSERT INTO qa_logs (
                         session_id,
@@ -1420,35 +1339,46 @@ async def websocket_interview_endpoint(
                 )
                 db.commit()
 
-                # 리액션 아바타 스트리밍 요청에 필요한, 방금 질문을 한 면접관의 아바타/음성 정보
-                current_avatar = current_q_data if isinstance(current_q_data, str) else current_q_data.get("avatar", "middle_aged")
-                current_q_type = "technical" if isinstance(current_q_data, str) else current_q_data.get("type", "technical")
-                current_duo_avatar_type = "personality" if current_q_type == "hr" else current_q_type
-
-                # 리액션 문구는 프론트엔드 채팅창에는 안 띄우고 아바타 발화로만 쓰이므로, 확인용으로 백엔드 로그에 남깁니다.
-                logger.info(f"[qa_feedback] score={earned_score} reaction_text={reaction_text!r}")
-
                 await websocket.send_json({
                     "type": "qa_feedback",
                     "question": current_question_text,
                     "score": earned_score,
                     "feedback": feedback_text,
-                    "reaction_text": reaction_text,
-                    "avatar": current_avatar,
-                    "interviewer_type": current_q_type,
-                    "duo_avatar_type": current_duo_avatar_type,
                 })
 
                 current_index += 1
                 current_gaze_loss_count = 0 
 
                 if current_index < total_questions:
+                    next_q_data = questions_list[current_index]
+                    next_q_type = "technical" if isinstance(next_q_data, str) else next_q_data.get("type", "technical")
+                    next_avatar = "middle_aged" if isinstance(next_q_data, str) else next_q_data.get("avatar", "middle_aged")
+                    next_voice = AVATAR_VOICE_MAP.get(next_avatar, "onyx")
+                    duo_avatar_type = "personality" if next_q_type == "hr" else next_q_type
+                    
+                    reaction_tts_task = asyncio.create_task(
+                        _generate_tts_fallback_base64(reaction_text, next_voice)
+                    )
+                    reaction_tts_base64 = await reaction_tts_task
+                    
+                    await websocket.send_json({
+                        "type": "interviewer_acknowledgment",
+                        "text": reaction_text,
+                        "avatar": next_avatar,
+                        "interviewer_type": next_q_type, 
+                        "duo_avatar_type": duo_avatar_type,
+                        "tts_audio_base64": reaction_tts_base64
+                    })
+
+                    await asyncio.sleep(2.5)
+
                     await send_next_question(
                         websocket,
-                        questions_list[current_index],
+                        next_q_data,
                         current_index + 1,
                         total_questions,
                         selected_candidates,
+                        reaction_text="", 
                     )
                 else:
                     final_avg_score = int(
@@ -1467,6 +1397,28 @@ async def websocket_interview_endpoint(
                         },
                     )
                     db.commit()
+                    
+                    last_q_data = questions_list[current_index - 1]
+                    last_q_type = "technical" if isinstance(last_q_data, str) else last_q_data.get("type", "technical")
+                    last_avatar = "middle_aged" if isinstance(last_q_data, str) else last_q_data.get("avatar", "middle_aged")
+                    last_voice = AVATAR_VOICE_MAP.get(last_avatar, "onyx")
+                    
+                    final_reaction = f"{reaction_text} 모든 질문이 끝났습니다. 수고하셨습니다. 이것으로 면접을 마치겠습니다."
+                    reaction_tts_task = asyncio.create_task(
+                        _generate_tts_fallback_base64(final_reaction, last_voice)
+                    )
+                    reaction_tts_base64 = await reaction_tts_task
+                    
+                    await websocket.send_json({
+                        "type": "interviewer_acknowledgment",
+                        "text": final_reaction,
+                        "avatar": last_avatar,
+                        "interviewer_type": last_q_type,
+                        "duo_avatar_type": "personality",
+                        "tts_audio_base64": reaction_tts_base64
+                    })
+                    
+                    await asyncio.sleep(3.5)
 
                     await websocket.send_json({
                         "type": "interview_completed",
