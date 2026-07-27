@@ -43,20 +43,25 @@ def split_resume_text(text: str, chunk_size: int = 500) -> list[str]:
 
 
 @log_execution_time("LLM 맞춤 면접 질문 단건 생성 (generate_single_question)")
-def generate_single_question(job_category: str, intent: str, context: str, q_type: str, avatar: str, previous_questions: list = None) -> dict:
+# 🚀 수정: trend_context 파라미터 추가
+def generate_single_question(job_category: str, intent: str, context: str, trend_context: str, q_type: str, avatar: str, previous_questions: list = None) -> dict:
     try:
         prev_q_text = ""
         if previous_questions:
             prev_q_text = "\n[이전에 생성된 질문 목록 (중복 회피용)]\n" + "\n".join([f"- {q}" for q in previous_questions]) + "\n"
 
+        # 🚀 추가: DB에서 가져온 트렌드 질문 텍스트 세팅
+        trend_instruction = f"\n[참고할 면접 트렌드 기출 질문]\n- {trend_context}\n" if trend_context else ""
+
         if q_type == "hr":
             system_prompt = (
                 f"당신은 10년 차 '{job_category}' 인사 담당 면접관입니다.\n"
-                f"지원자의 이력서 중 다음 [검색된 정보]를 참고하여, '{intent}'에 관한 인성/HR 면접 질문 1개를 생성하세요.\n"
+                f"지원자의 이력서 [검색된 정보]와 [참고할 면접 트렌드 기출 질문]을 참고하여, '{intent}'에 관한 인성/HR 면접 질문 1개를 생성하세요.\n"
                 f"기술적인 내용보다는 지원 동기, 입사 후 이뤄내고 싶은 목표, 커뮤니케이션 방식 등 지원자의 '성향과 포부'를 파악하는 데 집중하세요.\n"
                 f"이력서에 관련 내용이 부족하더라도 억지로 기술을 묻지 말고, 일반적이고 포괄적인 인성 면접 질문을 자연스럽게 생성하세요.\n"
                 "[주의사항]\n"
                 "- '이력서에 작성하신~' 혹은 '이력서를 보면~' 같은 기계적인 도입부를 절대 사용하지 마세요. 대화하듯 자연스럽게 질문의 본론으로 바로 들어가세요.\n"
+                "- [참고할 면접 트렌드 기출 질문]의 의도를 지원자의 이력서 경험에 맞게 자연스럽게 융합하여 하나의 질문으로 만드세요.\n" # 🚀 추가
                 f"{prev_q_text}"
                 "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
                 "{\n"
@@ -68,10 +73,11 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
         else:
             system_prompt = (
                 f"당신은 10년 차 '{job_category}' 기술 면접 평가관입니다.\n"
-                f"지원자의 이력서 중 다음 [검색된 정보]를 바탕으로 '{intent}'에 관한 기술 면접 질문 1개를 생성하세요.\n"
+                f"지원자의 이력서 [검색된 정보]와 [참고할 면접 트렌드 기출 질문]을 융합하여 '{intent}'에 관한 기술 면접 질문 1개를 생성하세요.\n"
                 f"질문은 단순한 확인이 아니라, 지원자의 실제 프로젝트 경험에 기반하여 구체적이고 날카롭게 꼬리를 무는 형식으로 작성해야 합니다.\n"
                 "[주의사항]\n"
                 "- '이력서에 작성하신 OOO 프로젝트에서~'와 같은 틀에 박힌 반복적인 도입부를 절대 사용하지 마세요. 실제 면접관처럼 자연스럽게 바로 본론을 물어보세요.\n"
+                "- [참고할 면접 트렌드 기출 질문]의 핵심 의도를 지원자의 이력서 내 특정 경험이나 기술과 자연스럽게 엮어서 질문하세요.\n" # 🚀 추가
                 "- 이미 질문한 내용과 똑같은 프로젝트나 똑같은 기술에 대한 질문을 반복하지 마세요.\n"
                 f"{prev_q_text}"
                 "반드시 아래의 JSON 형식으로만 응답해야 합니다.\n"
@@ -82,7 +88,8 @@ def generate_single_question(job_category: str, intent: str, context: str, q_typ
                 "}"
             )
 
-        user_prompt = f"[검색된 정보]\n{context if context else '관련 이력서 내용 없음'}"
+        # 🚀 수정: user_prompt에 트렌드 기출문제를 함께 넘겨줌
+        user_prompt = f"[검색된 정보]\n{context if context else '관련 이력서 내용 없음'}\n{trend_instruction}"
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",

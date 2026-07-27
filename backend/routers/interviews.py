@@ -90,10 +90,6 @@ router = APIRouter(
     tags=["Interviews"]
 )
 
-# 코랩 MuseTalk 듀오 서버는 요청 하나(GPU 추론+ffmpeg 인코딩)를 처리하는 동안
-# 이벤트 루프가 블로킹되어 동시 요청을 못 받는다. 리액션 아바타 스트림과
-# 다음 질문 프리페치 스트림이 겹쳐서 코랩에 동시에 들어가면 ngrok 게이트웨이가
-# 502를 반환하므로, 코랩으로 나가는 실제 요청만 이 lock으로 직렬화한다.
 _musetalk_colab_lock = asyncio.Lock()
 
 async def build_candidate_answers(
@@ -344,8 +340,8 @@ def create_interview_session(data: SessionCreateRequest, db: Session = Depends(g
 
 
 @log_execution_time("이력서 RAG 질문 생성 전체 프로세스 (_generate_rag_questions)")
-def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, db: Session) -> list:
-    print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작")
+def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, interview_mode: str, db: Session) -> list:
+    print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작 (모드: {interview_mode})")
     
     with ExecutionTimer("RAG - 청크 임베딩 및 DB 적재", session_id=session_id):
         chunks = split_resume_text(resume_text)
@@ -363,19 +359,37 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             })
         db.commit()
 
-    search_queries = [
-        ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged"),
-        ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged"),
-        ("지원 직무와 관련된 기술적 역량과 딥다이브 꼬리 질문", "technical", "middle_aged"),
-        ("이 회사에 지원하게 된 구체적인 이유와 입사 후 이뤄내고 싶은 목표 (지원 동기 및 포부)", "hr", "young"),
-        ("팀원과의 협업 경험, 갈등 해결 방식, 또는 본인만의 장단점 (인성 및 컬처핏)", "hr", "young"),
-    ]
+    # 🚀 사용자가 선택한 면접 모드에 따라 생성할 5가지 질문의 의도를 동적으로 분기
+    # 실전(mixed)과 인성(hr) 모드는 첫 질문이 무조건 '자기소개'이므로 LLM 맞춤형 생성은 4개만 진행합니다.
+    if interview_mode == "technical":
+        search_queries = [
+            ("지원자의 기술 스택과 아키텍처 설계 경험", "technical", "middle_aged", "직무"),
+            ("성능 최적화 또는 기술적 문제 해결 경험", "technical", "middle_aged", "이력서"),
+            ("지원 직무의 핵심 개념에 대한 딥다이브 꼬리 질문", "technical", "middle_aged", "직무"),
+            ("기술적 갈등이 발생했을 때의 해결 방식", "technical", "middle_aged", "회사생활"),
+            ("최신 기술 트렌드 학습 및 적용 경험", "technical", "middle_aged", "이력서"),
+        ]
+    elif interview_mode == "hr":
+        search_queries = [
+            ("우리 회사에 지원하게 된 구체적인 동기", "hr", "young", "지원회사"),
+            ("입사 후 3년 뒤, 5년 뒤 본인의 커리어 목표", "hr", "young", "지원회사"),
+            ("본인의 가장 큰 장점과 치명적인 단점 한 가지", "hr", "young", "인성"),
+            ("상사나 동료와의 갈등을 원만하게 해결한 경험", "hr", "young", "회사생활"),
+        ]
+    else:
+        # 기본 실전 혼합 모드 (mixed)
+        search_queries = [
+            ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged", "직무"),
+            ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged", "이력서"),
+            ("지원 직무와 관련된 기술적 역량과 딥다이브 꼬리 질문", "technical", "middle_aged", "직무"),
+            ("이 회사에 지원하게 된 구체적인 이유와 입사 후 이뤄내고 싶은 목표 (지원 동기 및 포부)", "hr", "young", "지원회사"),
+        ]
 
     generated_questions = []
     previous_question_texts = [] 
     
     with ExecutionTimer("RAG - 의도별 벡터 검색 및 LLM 질문 생성", session_id=session_id):
-        for intent, q_type, avatar in search_queries:
+        for intent, q_type, avatar, trend_category in search_queries:
             q_emb = get_embedding(intent)
             
             top_chunks = db.execute(text("""
@@ -391,10 +405,21 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             
             context = "\n\n".join([row[0] for row in top_chunks])
             
+            trend_row = db.execute(text("""
+                SELECT question_text 
+                FROM interview_trend_questions 
+                WHERE category = :cat 
+                ORDER BY RANDOM() 
+                LIMIT 1
+            """), {"cat": trend_category}).fetchone()
+            
+            trend_context = trend_row[0] if trend_row else ""
+            
             question_data = generate_single_question(
                 job_category, 
                 intent, 
                 context, 
+                trend_context,
                 q_type, 
                 avatar, 
                 previous_questions=previous_question_texts
@@ -403,7 +428,17 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             generated_questions.append(question_data)
             previous_question_texts.append(question_data.get("question", ""))
 
+    # LLM이 생성한 맞춤형 4~5개의 질문은 무작위 순서로 섞음
     random.shuffle(generated_questions)
+    
+    # 🚀 실전(혼합) / 인성 모드의 경우, 섞인 리스트의 맨 앞에 무조건 "자기소개" 문항 고정 배치
+    if interview_mode in ["mixed", "hr"]:
+        generated_questions.insert(0, {
+            "question": "간단하게 자기소개 부탁드립니다.",
+            "type": "hr",
+            "avatar": "young"
+        })
+
     return generated_questions
 
 
@@ -456,7 +491,7 @@ async def extract_github_content(text: str) -> str:
 
 @router.post("/{session_id}/upload-resume")
 @log_execution_time("이력서 PDF 처리 및 맞춤 질문 생성 API (upload_resume_and_generate_questions)")
-async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_resume_and_generate_questions(session_id: str, interview_mode: str = "mixed", file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
 
@@ -481,7 +516,7 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
             
         job_category = session_info[0]
 
-        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
+        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, interview_mode, db)
 
         update_query = text("""
             UPDATE interview_sessions 
@@ -548,6 +583,7 @@ def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
 def use_existing_resume(
     session_id: str,
     user_id: str,
+    interview_mode: str = "mixed",
     db: Session = Depends(get_db)
 ):
     try:
@@ -593,7 +629,7 @@ def use_existing_resume(
 
         job_category = session_result[0]
 
-        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
+        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, interview_mode, db)
 
         update_query = text("""
             UPDATE interview_sessions
@@ -1276,11 +1312,9 @@ async def websocket_interview_endpoint(
                 )
                 accumulated_score += earned_score
                 
-                # 🚀 6. 리액션 문구 배정 (50점 기준 얼떨떨함/긍정 풀링 적용)
                 is_last_question = current_index + 1 >= total_questions
 
                 if is_last_question:
-                    # 마지막 질문에는 "다음 질문 드리겠습니다" 톤이 안 맞으므로 마무리 인사로 고정
                     reaction_text = random.choice([
                         "네, 수고하셨습니다. 면접이 모두 종료되었습니다.",
                         "네, 여기까지 답변 잘 들었습니다. 면접 수고하셨습니다.",
@@ -1293,7 +1327,6 @@ async def websocket_interview_endpoint(
                         "좋은 경험이네요. 답변 감사합니다. 다음 질문 드리겠습니다."
                     ])
                 else:
-                    # 50점 미만: 얼떨떨하고 조금 당황/부정적인 리액션
                     reaction_text = random.choice([
                         "아... 네, 알겠습니다. 다음 질문 드릴게요.",
                         "음... 네, 일단 알겠습니다. 이어서 질문드리죠.",
@@ -1302,7 +1335,6 @@ async def websocket_interview_endpoint(
                         "아... 질문의 의도와는 조금 다른 것 같지만, 알겠습니다. 다음 질문 드리죠."
                     ])
 
-                # 🚀 리액션은 방금 질문했던(반응하는) 면접관의 만족/불만족 전용 아바타가 말합니다.
                 current_q_type = "technical" if isinstance(current_q_data, str) else current_q_data.get("type", "technical")
                 current_avatar = "middle_aged" if isinstance(current_q_data, str) else current_q_data.get("avatar", "middle_aged")
                 current_duo_avatar_type = "personality" if current_q_type == "hr" else current_q_type
@@ -1429,8 +1461,6 @@ async def websocket_interview_endpoint(
                     )
                     db.commit()
                     
-                    # 🚀 reaction_text가 이미 마지막 질문용 마무리 인사(is_last_question 분기)이므로
-                    # 여기서 다시 문구를 덧붙이지 않고, 만족/불만족 아바타 변형도 그대로 이어서 씀.
                     last_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
 
                     reaction_tts_task = asyncio.create_task(
