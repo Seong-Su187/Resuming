@@ -23,7 +23,6 @@ from schemas import SessionCreateRequest
 from database import get_db
 from audio_analyzer import extract_voice_metrics, calculate_delta
 from filler_analyzer import count_filler_words
-from vision_analyzer import check_gaze_loss
 from llm import (
     get_embedding,
     split_resume_text,
@@ -359,8 +358,6 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             })
         db.commit()
 
-    # 🚀 사용자가 선택한 면접 모드에 따라 생성할 5가지 질문의 의도를 동적으로 분기
-    # 실전(mixed)과 인성(hr) 모드는 첫 질문이 무조건 '자기소개'이므로 LLM 맞춤형 생성은 4개만 진행합니다.
     if interview_mode == "technical":
         search_queries = [
             ("지원자의 기술 스택과 아키텍처 설계 경험", "technical", "middle_aged", "직무"),
@@ -377,7 +374,6 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             ("상사나 동료와의 갈등을 원만하게 해결한 경험", "hr", "young", "회사생활"),
         ]
     else:
-        # 기본 실전 혼합 모드 (mixed)
         search_queries = [
             ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged", "직무"),
             ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged", "이력서"),
@@ -424,20 +420,12 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
                 avatar, 
                 previous_questions=previous_question_texts
             )
-
-            print("[생성 질문 원본]", question_data)
-            print("[기대값]", {
-            "type": q_type,
-            "avatar": avatar,
-            })
             
             generated_questions.append(question_data)
             previous_question_texts.append(question_data.get("question", ""))
 
-    # LLM이 생성한 맞춤형 4~5개의 질문은 무작위 순서로 섞음
     random.shuffle(generated_questions)
     
-    # 🚀 실전(혼합) / 인성 모드의 경우, 섞인 리스트의 맨 앞에 무조건 "자기소개" 문항 고정 배치
     if interview_mode in ["mixed", "hr"]:
         generated_questions.insert(0, {
             "question": "간단하게 자기소개 부탁드립니다.",
@@ -894,13 +882,11 @@ async def process_interview_audio(
     }
 
     try:
-        # 음성 파일 자체를 보내지 않은 경우
         if audio_file is None:
             return empty_result
 
         audio_content = await audio_file.read()
 
-        # 빈 파일 또는 빈 Blob을 보낸 경우
         if not audio_content:
             return empty_result
 
@@ -924,7 +910,6 @@ async def process_interview_audio(
                 temp_wav_path,
             )
 
-        # 무음이거나 STT 결과가 없는 경우
         if not transcribed_text or not transcribed_text.strip():
             return empty_result
 
@@ -962,7 +947,6 @@ async def process_interview_audio(
             {"user_id": user_id},
         ).fetchone()
 
-        # 기준 음성 데이터가 없거나 일부 값이 NULL인 경우
         if (
             not profile
             or profile[0] is None
@@ -1053,16 +1037,26 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         curr_date = current_session[3]
 
         logs = db.execute(
-            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count FROM qa_logs WHERE session_id = CAST(:s AS UUID) ORDER BY created_at ASC"), 
+            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count, heatmap_data FROM qa_logs WHERE session_id = CAST(:s AS UUID) ORDER BY created_at ASC"), 
             {"s": session_id}
         ).fetchall()
         
         details = []
         for r in logs:
+            heatmap_data = r[8]
+            if isinstance(heatmap_data, str):
+                try:
+                    heatmap_data = json.loads(heatmap_data)
+                except:
+                    heatmap_data = []
+            elif heatmap_data is None:
+                heatmap_data = []
+
             details.append({
                 "question": r[0], "user_answer": r[1], "score": r[2], "feedback": r[3],
                 "jitter_delta": r[4], "shimmer_delta": r[5],
-                "filler_count": r[6], "gaze_loss": r[7]
+                "filler_count": r[6], "gaze_loss": r[7],
+                "heatmap_data": heatmap_data
             })
 
         history_query = text("""
@@ -1247,6 +1241,9 @@ async def websocket_interview_endpoint(
     selected_candidates: list[dict] = []
     
     current_gaze_loss_count = 0 
+    
+    # 🚀 시선 위치(좌표) 누적 배열 추가
+    gaze_coordinates = []
 
     try:
         await websocket.send_json({
@@ -1285,6 +1282,7 @@ async def websocket_interview_endpoint(
                     reaction_text="",
                 )
 
+            # 🚀 수정된 부분: analyze_frame 을 통해 1번 연산으로 loss 판정과 좌표를 동시 획득
             elif message_type == "video_frame":
                 is_recording = data.get("is_recording", False)
                 
@@ -1295,11 +1293,15 @@ async def websocket_interview_endpoint(
                     
                     if b64_image:
                         try:
-                            if check_gaze_loss(b64_image, baseline_nose, baseline_iris):
+                            from vision_analyzer import analyze_frame
+                            is_loss, gaze_pos = analyze_frame(b64_image, baseline_nose, baseline_iris)
+                            
+                            if is_loss:
                                 current_gaze_loss_count += 1
-                        except TypeError:
-                            if check_gaze_loss(b64_image):
-                                current_gaze_loss_count += 1
+                            if gaze_pos:
+                                gaze_coordinates.append(gaze_pos)
+                        except Exception as e:
+                            logger.error(f"[Vision AI Error] 프레임 분석 중 오류: {e}")
 
             elif message_type == "submit_answer":
                 user_text = data.get(
@@ -1446,6 +1448,7 @@ async def websocket_interview_endpoint(
                 if growth_feedback:
                     feedback_text += f"\n\n[성장 분석]: {growth_feedback}"
 
+                # 🚀 DB에 heatmap_data(좌표 배열 JSON) 적재
                 log_query = text("""
                     INSERT INTO qa_logs (
                         session_id,
@@ -1458,6 +1461,7 @@ async def websocket_interview_endpoint(
                         feedback,
                         filler_word_count,
                         gaze_loss_count,
+                        heatmap_data,
                         answer_embedding
                     )
                     VALUES (
@@ -1471,6 +1475,7 @@ async def websocket_interview_endpoint(
                         :feedback,
                         :filler,
                         :gaze,
+                        :heatmap_data,
                         CAST(:answer_embedding AS vector)
                     )
                 """)
@@ -1488,6 +1493,7 @@ async def websocket_interview_endpoint(
                         "feedback": feedback_text,
                         "filler": filler_count,
                         "gaze": current_gaze_loss_count,
+                        "heatmap_data": json.dumps(gaze_coordinates) if gaze_coordinates else None,
                         "answer_embedding": str(current_answer_emb) if current_answer_emb else None
                     },
                 )
@@ -1500,8 +1506,10 @@ async def websocket_interview_endpoint(
                     "feedback": feedback_text,
                 })
 
+                # 다음 질문 준비 시 카운트 및 좌표 배열 초기화
                 current_index += 1
                 current_gaze_loss_count = 0 
+                gaze_coordinates = []
 
                 if current_index < total_questions:
                     next_q_data = questions_list[current_index]
