@@ -810,7 +810,7 @@
 }
 
 .camera-choice-modal {
-    width: min(440px, 100%);
+    width: min(620px, 100%);
     padding: 34px 32px;
     box-sizing: border-box;
 
@@ -850,6 +850,87 @@
     font-size: 14px;
     line-height: 1.7;
     word-break: keep-all;
+}
+
+.camera-choice-description {
+    margin-bottom: 24px !important;
+}
+
+.initial-interview-mode-area,
+.initial-camera-choice-area {
+    width: 100%;
+    text-align: left;
+}
+
+.initial-interview-mode-title,
+.initial-camera-choice-title {
+    display: block;
+    margin-bottom: 10px;
+
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+.initial-interview-mode-buttons {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    margin-bottom: 24px;
+}
+
+.initial-interview-mode-button {
+    flex: 1;
+    min-width: 0;
+    min-height: 92px;
+    padding: 14px 12px;
+    box-sizing: border-box;
+
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 13px;
+
+    color: #aeb5c5;
+    font-family: inherit;
+    text-align: center;
+
+    background: #292e3a;
+    cursor: pointer;
+
+    transition:
+        transform 0.15s ease,
+        border-color 0.15s ease,
+        background 0.15s ease;
+}
+
+.initial-interview-mode-button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(116, 87, 245, 0.7);
+}
+
+.initial-interview-mode-button.selected {
+    border-color: #7457f5;
+    color: #ffffff;
+    background: rgba(116, 87, 245, 0.2);
+}
+
+.initial-interview-mode-button strong {
+    display: block;
+    margin-bottom: 6px;
+
+    font-size: 15px;
+}
+
+.initial-interview-mode-button span {
+    display: block;
+
+    font-size: 12px;
+    line-height: 1.5;
+    word-break: keep-all;
+}
+
+.initial-camera-choice-area {
+    padding-top: 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .camera-choice-buttons {

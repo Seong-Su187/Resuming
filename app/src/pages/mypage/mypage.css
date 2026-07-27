@@ -435,9 +435,10 @@
 .mypage .voice-metric-list>div {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 6px;
 
-    padding: 8px;
+    min-width: 0;
+    padding: 10px;
 
     border: 1px solid #e2e9e5;
     border-radius: 14px;
@@ -449,6 +450,7 @@
     color: #737d77;
 
     font-size: 11px;
+    font-weight: 700;
     white-space: nowrap;
 }
 
@@ -457,6 +459,22 @@
 
     font-size: 13px;
     font-weight: 800;
+}
+
+.mypage .voice-metric-list small {
+    color: #8a948e;
+
+    font-size: 10px;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+
+.mypage .voice-metric-list strong.metric-good {
+    color: #2f5d46;
+}
+
+.mypage .voice-metric-list strong.metric-warning {
+    color: #c14d4d;
 }
 
 /* 질문별 피드백 */

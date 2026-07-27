@@ -12,7 +12,7 @@ function Start({ startVideoUrl }) {
     const [selectedCandidateIds, setSelectedCandidateIds] = useState([]);
     const [isCandidatesLoading, setIsCandidatesLoading] = useState(true);
     const [candidateError, setCandidateError] = useState('');
-    const [isVideoStarted, setIsVideoStarted] = useState(false);
+    const [isVideoStarted, setIsVideoStarted] = useState(true);
 
     useEffect(() => {
         const fetchCandidates = async () => {
