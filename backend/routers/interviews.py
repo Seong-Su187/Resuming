@@ -424,6 +424,12 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
                 avatar, 
                 previous_questions=previous_question_texts
             )
+
+            print("[생성 질문 원본]", question_data)
+            print("[기대값]", {
+            "type": q_type,
+            "avatar": avatar,
+            })
             
             generated_questions.append(question_data)
             previous_question_texts.append(question_data.get("question", ""))
@@ -872,64 +878,147 @@ async def save_baseline_voice(
 async def process_interview_audio(
     session_id: str,
     user_id: str = Form(...),
-    audio_file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    audio_file: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
 ):
     file_id = uuid.uuid4()
     temp_webm_path = f"temp_answer_{file_id}.webm"
     temp_wav_path = f"temp_answer_{file_id}.wav"
+
+    empty_result = {
+        "status": "success",
+        "transcribed_text": "",
+        "jitter_shaken_percentage": 0.0,
+        "shimmer_shaken_percentage": 0.0,
+        "speed_difference_wpm": 0.0,
+    }
+
     try:
+        # 음성 파일 자체를 보내지 않은 경우
+        if audio_file is None:
+            return empty_result
+
         audio_content = await audio_file.read()
 
+        # 빈 파일 또는 빈 Blob을 보낸 경우
         if not audio_content:
-            raise HTTPException(
-                status_code=400,
-                detail="녹음된 답변 파일이 비어 있습니다.",
-            )
+            return empty_result
 
         with open(temp_webm_path, "wb") as buffer:
             buffer.write(audio_content)
-            
-        with ExecutionTimer("면접 답변 음성 포맷 변환"):
-            convert_audio_to_wav(temp_webm_path, temp_wav_path)
-        
+
+        try:
+            with ExecutionTimer("면접 답변 음성 포맷 변환"):
+                convert_audio_to_wav(
+                    temp_webm_path,
+                    temp_wav_path,
+                )
+        except Exception as error:
+            logger.warning(
+                f"[면접 답변 음성 변환 실패] 빈값으로 처리: {error}"
+            )
+            return empty_result
+
         with ExecutionTimer("면접 답변 STT 분석"):
-            transcribed_text = process_audio_to_text(temp_wav_path)
-        
-        if not transcribed_text or not transcribed_text.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="답변 음성이 감지되지 않았습니다. 조금 더 크게 다시 답변해 주세요.",
-            )
-            
-        with ExecutionTimer("면접 답변 지표 추출"):
-            current_metrics = extract_voice_metrics(
+            transcribed_text = process_audio_to_text(
                 temp_wav_path,
-                transcribed_text,
             )
-        
-        profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = CAST(:user_id AS UUID)")
-        profile = db.execute(profile_query, {"user_id": user_id}).fetchone()
-        
-        if not profile:
-            raise HTTPException(status_code=404, detail="유저 평음 데이터 없음")
-            
-        base_jitter, base_shimmer, base_wpm = profile[0], profile[1], profile[2]
-        
-        delta_jitter = calculate_delta(base_jitter, current_metrics["jitter"])
-        delta_shimmer = calculate_delta(base_shimmer, current_metrics["shimmer"])
-        delta_wpm = current_metrics["wpm"] - base_wpm
-        
+
+        # 무음이거나 STT 결과가 없는 경우
+        if not transcribed_text or not transcribed_text.strip():
+            return empty_result
+
+        try:
+            with ExecutionTimer("면접 답변 지표 추출"):
+                current_metrics = extract_voice_metrics(
+                    temp_wav_path,
+                    transcribed_text,
+                )
+        except Exception as error:
+            logger.warning(
+                f"[면접 답변 음성 지표 분석 실패] "
+                f"텍스트만 반환하고 지표는 0으로 처리: {error}"
+            )
+
+            return {
+                "status": "success",
+                "transcribed_text": transcribed_text.strip(),
+                "jitter_shaken_percentage": 0.0,
+                "shimmer_shaken_percentage": 0.0,
+                "speed_difference_wpm": 0.0,
+            }
+
+        profile_query = text("""
+            SELECT
+                baseline_jitter,
+                baseline_shimmer,
+                baseline_wpm
+            FROM profiles
+            WHERE id = CAST(:user_id AS UUID)
+        """)
+
+        profile = db.execute(
+            profile_query,
+            {"user_id": user_id},
+        ).fetchone()
+
+        # 기준 음성 데이터가 없거나 일부 값이 NULL인 경우
+        if (
+            not profile
+            or profile[0] is None
+            or profile[1] is None
+            or profile[2] is None
+        ):
+            return {
+                "status": "success",
+                "transcribed_text": transcribed_text.strip(),
+                "jitter_shaken_percentage": 0.0,
+                "shimmer_shaken_percentage": 0.0,
+                "speed_difference_wpm": 0.0,
+            }
+
+        base_jitter = float(profile[0])
+        base_shimmer = float(profile[1])
+        base_wpm = float(profile[2])
+
+        current_jitter = float(
+            current_metrics.get("jitter", 0.0)
+        )
+        current_shimmer = float(
+            current_metrics.get("shimmer", 0.0)
+        )
+        current_wpm = float(
+            current_metrics.get("wpm", 0.0)
+        )
+
+        delta_jitter = calculate_delta(
+            base_jitter,
+            current_jitter,
+        )
+        delta_shimmer = calculate_delta(
+            base_shimmer,
+            current_shimmer,
+        )
+        delta_wpm = current_wpm - base_wpm
+
         return {
             "status": "success",
-            "transcribed_text": transcribed_text,
+            "transcribed_text": transcribed_text.strip(),
             "jitter_shaken_percentage": delta_jitter,
             "shimmer_shaken_percentage": delta_shimmer,
-            "speed_difference_wpm": delta_wpm
+            "speed_difference_wpm": delta_wpm,
         }
+
+    except Exception as error:
+        logger.error(
+            f"[면접 답변 음성 처리 오류] 빈값으로 처리: {error}"
+        )
+        return empty_result
+
     finally:
         if os.path.exists(temp_webm_path):
             os.remove(temp_webm_path)
+
         if os.path.exists(temp_wav_path):
             os.remove(temp_wav_path)
 

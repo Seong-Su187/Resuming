@@ -781,51 +781,106 @@ function MyPage() {
                                                 <strong>{log.score ?? '-'}점</strong>
                                             </div>
 
-                                            {/* 🚀 지표 및 기준점 툴팁 추가 영역 */}
+                                            {/* 🚀 지표 및 기준점 추가 영역 */}
                                             <div className="voice-metric-list">
                                                 <div>
-                                                    <span title="평소 대비 ±10% 이내가 안정적입니다. 수치가 높을수록 긴장한 상태를 의미합니다." style={{ cursor: 'help' }}>
-                                                        목소리 떨림 ℹ️
-                                                    </span>
-                                                    <strong className={log.jitter_shaken_percentage > 10 ? 'metric-warning' : 'metric-good'}>
-                                                        {formatMetric(log.jitter_shaken_percentage, 2, '%')}
+                                                    <span>목소리 떨림</span>
+
+                                                    <strong
+                                                        className={
+                                                            log.jitter_shaken_percentage > 10
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {formatMetric(
+                                                            log.jitter_shaken_percentage,
+                                                            2,
+                                                            '%',
+                                                        )}
                                                     </strong>
+
+                                                    <small>권장 기준 ±10% 이내</small>
                                                 </div>
+
                                                 <div>
-                                                    <span title="평소 대비 ±15% 이내가 안정적입니다. 수치가 높다면 마이크와의 거리가 불규칙한 것일 수 있습니다." style={{ cursor: 'help' }}>
-                                                        음량 흔들림 ℹ️
-                                                    </span>
-                                                    <strong>
-                                                        {formatMetric(log.shimmer_shaken_percentage, 2, '%')}
+                                                    <span>음량 흔들림</span>
+
+                                                    <strong
+                                                        className={
+                                                            log.shimmer_shaken_percentage > 15
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {formatMetric(
+                                                            log.shimmer_shaken_percentage,
+                                                            2,
+                                                            '%',
+                                                        )}
                                                     </strong>
+
+                                                    <small>권장 기준 ±15% 이내</small>
                                                 </div>
+
                                                 <div>
-                                                    <span title="일반적으로 120~150 WPM이 듣기 편안한 속도입니다. +20 WPM 이상 급증했다면 말이 너무 빨라진 것입니다." style={{ cursor: 'help' }}>
-                                                        속도 변화 ℹ️
-                                                    </span>
-                                                    <strong>
-                                                        {formatMetric(log.speed_difference_wpm, 0, 'wpm')}
+                                                    <span>속도 변화</span>
+
+                                                    <strong
+                                                        className={
+                                                            Math.abs(
+                                                                Number(log.speed_difference_wpm),
+                                                            ) > 20
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {formatMetric(
+                                                            log.speed_difference_wpm,
+                                                            0,
+                                                            'wpm',
+                                                        )}
                                                     </strong>
+
+                                                    <small>권장 기준 ±20wpm 이내</small>
                                                 </div>
+
                                                 <div>
-                                                    <span title="0~2회가 적당합니다. '음', '어' 등이 너무 잦으면 전문성이 떨어져 보일 수 있습니다." style={{ cursor: 'help' }}>
-                                                        습관어 사용 ℹ️
-                                                    </span>
-                                                    <strong className={log.filler_word_count > 3 ? 'metric-warning' : 'metric-good'}>
-                                                        {log.filler_word_count !== null && log.filler_word_count !== undefined
+                                                    <span>습관어 사용</span>
+
+                                                    <strong
+                                                        className={
+                                                            log.filler_word_count > 2
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {log.filler_word_count !== null
+                                                            && log.filler_word_count !== undefined
                                                             ? `${log.filler_word_count}회`
                                                             : '-'}
                                                     </strong>
+
+                                                    <small>권장 기준 2회 이하</small>
                                                 </div>
+
                                                 <div>
-                                                    <span title="3회 이하를 권장합니다. 면접관(렌즈)을 똑바로 응시하며 자신감을 보여주세요." style={{ cursor: 'help' }}>
-                                                        시선 이탈 ℹ️
-                                                    </span>
-                                                    <strong className={log.gaze_loss_count >= 3 ? 'metric-warning' : 'metric-good'}>
-                                                        {log.gaze_loss_count !== null && log.gaze_loss_count !== undefined
+                                                    <span>시선 이탈</span>
+
+                                                    <strong
+                                                        className={
+                                                            log.gaze_loss_count > 3
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {log.gaze_loss_count !== null
+                                                            && log.gaze_loss_count !== undefined
                                                             ? `${log.gaze_loss_count}회`
                                                             : '-'}
                                                     </strong>
+
+                                                    <small>권장 기준 3회 이하</small>
                                                 </div>
                                             </div>
 
