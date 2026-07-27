@@ -1,0 +1,68 @@
+{
+  "count": 6,
+  "retrieval_accuracy": 0.8333333333333334,
+  "avg_faithfulness": 0.5777777777777777,
+  "비고": "top-1 검색만 사용하는 태스크라 Context Precision/Recall 대신 검색 정확도(hit rate)로 단순화해 계산함. Faithfulness는 growth_feedback이 실제 제공된 과거/현재 기록 범위를 벗어나 근거 없는 성장 서사를 지어내지 않는지를 검증하는 데 씀.",
+  "details": [
+    {
+      "candidate": "박지훈(백엔드 개발자 지망)",
+      "case_index": 0,
+      "current_question": "팀원과 협업 과정에서 갈등을 해결했던 경험이 있나요?",
+      "retrieved_index": 0,
+      "ground_truth_index": 0,
+      "retrieval_hit": 1,
+      "growth_feedback": "이전 답변에 비해 갈등 해결 과정에서의 구체적인 상황 설명이 개선되었습니다. 특히, 데이터 기반의 의사결정 과정을 언급한 점이 긍정적입니다. 비언어적 지표에서도 시선 이탈이 감소하고, 습관어 사용이 줄어든 점이 인상적입니다.",
+      "faithfulness": 0.75
+    },
+    {
+      "candidate": "박지훈(백엔드 개발자 지망)",
+      "case_index": 1,
+      "current_question": "성능 문제를 해결했던 경험을 자세히 설명해주세요.",
+      "retrieved_index": 1,
+      "ground_truth_index": 1,
+      "retrieval_hit": 1,
+      "growth_feedback": "과거 답변에 비해 현재 답변은 문제 해결 과정과 결과가 더욱 구체적이고 명확하게 설명되었습니다. 특히, 성능 개선의 수치적 결과를 제시한 점이 인상적입니다. 비언어적 지표에서도 jitter와 shimmer가 감소하여 자신감이 향상된 것으로 보입니다. 이러한 발전은 긍정적인 성장으로 평가됩니다.",
+      "faithfulness": 0.4
+    },
+    {
+      "candidate": "박지훈(백엔드 개발자 지망)",
+      "case_index": 2,
+      "current_question": "일이 뜻대로 되지 않았던 경험과 극복 방법을 말씀해주세요.",
+      "retrieved_index": 2,
+      "ground_truth_index": 2,
+      "retrieval_hit": 1,
+      "growth_feedback": "과거 답변에 비해 현재의 답변은 구체적인 상황과 개선 방안을 잘 설명하고 있어 긍정적인 변화가 보입니다. 비언어적 지표에서도 시선 이탈과 습관어 사용이 감소하여 자신감이 향상된 것으로 보입니다. 이러한 발전을 계속 이어가길 바랍니다.",
+      "faithfulness": 0.4
+    },
+    {
+      "candidate": "이서연(마케팅 기획자 지망)",
+      "case_index": 0,
+      "current_question": "다른 부서와 협업하며 갈등을 조율했던 경험이 있나요?",
+      "retrieved_index": 1,
+      "ground_truth_index": 0,
+      "retrieval_hit": 0,
+      "growth_feedback": "과거 답변에서 데이터 분석을 통한 성과를 구체적으로 제시한 것에 비해, 현재 답변은 갈등 조율의 경험을 언급했지만, 세부적인 역할이나 행동이 부족했습니다. 그러나 비언어적 지표에서 시선 이탈이 없고, 습관어도 감소한 점은 긍정적인 변화로 평가됩니다.",
+      "faithfulness": 0.75
+    },
+    {
+      "candidate": "이서연(마케팅 기획자 지망)",
+      "case_index": 1,
+      "current_question": "데이터 분석으로 마케팅 성과를 개선한 경험을 말씀해주세요.",
+      "retrieved_index": 1,
+      "ground_truth_index": 1,
+      "retrieval_hit": 1,
+      "growth_feedback": "지원자는 과거에 비해 데이터 분석을 통한 마케팅 성과 개선 경험을 구체적으로 설명하였고, 수치적 성과를 제시하여 답변의 구체성이 향상되었습니다. 비언어적 지표에서도 시선 이탈과 습관어 사용이 줄어들어 긍정적인 성장을 보였습니다.",
+      "faithfulness": 0.5
+    },
+    {
+      "candidate": "이서연(마케팅 기획자 지망)",
+      "case_index": 2,
+      "current_question": "계획대로 되지 않았던 프로젝트 경험을 말씀해주세요.",
+      "retrieved_index": 2,
+      "ground_truth_index": 2,
+      "retrieval_hit": 1,
+      "growth_feedback": "이전 답변에 비해 상황 설명이 더 구체적이었고, 본인의 역할을 언급한 점에서 발전이 있었습니다. 비언어적 지표에서도 시선 이탈이 감소하고, 습관어 사용이 줄어든 점이 긍정적입니다. 그러나 여전히 구체적인 행동과 결과에 대한 설명이 부족하므로, 향후 더 명확한 사례를 제시하는 것이 필요합니다.",
+      "faithfulness": 0.6666666666666666
+    }
+  ]
+}
