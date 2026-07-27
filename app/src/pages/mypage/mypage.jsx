@@ -1,4 +1,3 @@
-/* mypage.jsx */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API_BASE_URL from '../../config/apiConfig';
@@ -590,14 +589,12 @@ function MyPage() {
         });
     }, [sessions, chartSessionLimit]);
 
-    // PDF 다운로드 핸들러
     const handleDownloadPdf = async () => {
         if (!selectedSessionId || isDownloadingPdf) return;
 
         setIsDownloadingPdf(true);
 
         try {
-            // 주의: 이 엔드포인트는 백엔드의 PDF 생성 API 라우팅에 맞게 설정해야 합니다. (예: /interviews/{sessionId}/pdf)
             const response = await fetch(`${API_BASE_URL}/interviews/${selectedSessionId}/pdf`, {
                 method: 'GET',
             });
@@ -733,32 +730,6 @@ function MyPage() {
                     </aside>
 
                     <section className="mypage-result">
-                        {/*
-                        <div className="mypage-view-navigation">
-                            <button
-                                type="button"
-                                className="mypage-view-button"
-                                onClick={() => setResultView('charts')}
-                                disabled={resultView === 'charts'}
-                            >
-                                이전
-                            </button>
-
-                            <span>
-                                {resultView === 'charts' ? '그래프' : '상세 결과'}
-                            </span>
-
-                            <button
-                                type="button"
-                                className="mypage-view-button"
-                                onClick={() => setResultView('details')}
-                                disabled={resultView === 'details' || !selectedSession}
-                            >
-                                다음
-                            </button>
-                        </div>
-                         */}
-
                         {resultView === 'charts' ? (
                             <InterviewAverageChart
                                 data={interviewMetrics}
@@ -810,30 +781,47 @@ function MyPage() {
                                                 <strong>{log.score ?? '-'}점</strong>
                                             </div>
 
+                                            {/* 🚀 지표 및 기준점 툴팁 추가 영역 */}
                                             <div className="voice-metric-list">
                                                 <div>
-                                                    <span>목소리 떨림</span>
-                                                    <strong>{formatMetric(log.jitter_shaken_percentage, 2, '%')}</strong>
+                                                    <span title="평소 대비 ±10% 이내가 안정적입니다. 수치가 높을수록 긴장한 상태를 의미합니다." style={{ cursor: 'help' }}>
+                                                        목소리 떨림 ℹ️
+                                                    </span>
+                                                    <strong className={log.jitter_shaken_percentage > 10 ? 'metric-warning' : 'metric-good'}>
+                                                        {formatMetric(log.jitter_shaken_percentage, 2, '%')}
+                                                    </strong>
                                                 </div>
                                                 <div>
-                                                    <span>음량 흔들림</span>
-                                                    <strong>{formatMetric(log.shimmer_shaken_percentage, 2, '%')}</strong>
-                                                </div>
-                                                <div>
-                                                    <span>속도 변화</span>
-                                                    <strong>{formatMetric(log.speed_difference_wpm, 0, 'wpm')}</strong>
-                                                </div>
-                                                <div>
-                                                    <span>습관어 사용</span>
+                                                    <span title="평소 대비 ±15% 이내가 안정적입니다. 수치가 높다면 마이크와의 거리가 불규칙한 것일 수 있습니다." style={{ cursor: 'help' }}>
+                                                        음량 흔들림 ℹ️
+                                                    </span>
                                                     <strong>
+                                                        {formatMetric(log.shimmer_shaken_percentage, 2, '%')}
+                                                    </strong>
+                                                </div>
+                                                <div>
+                                                    <span title="일반적으로 120~150 WPM이 듣기 편안한 속도입니다. +20 WPM 이상 급증했다면 말이 너무 빨라진 것입니다." style={{ cursor: 'help' }}>
+                                                        속도 변화 ℹ️
+                                                    </span>
+                                                    <strong>
+                                                        {formatMetric(log.speed_difference_wpm, 0, 'wpm')}
+                                                    </strong>
+                                                </div>
+                                                <div>
+                                                    <span title="0~2회가 적당합니다. '음', '어' 등이 너무 잦으면 전문성이 떨어져 보일 수 있습니다." style={{ cursor: 'help' }}>
+                                                        습관어 사용 ℹ️
+                                                    </span>
+                                                    <strong className={log.filler_word_count > 3 ? 'metric-warning' : 'metric-good'}>
                                                         {log.filler_word_count !== null && log.filler_word_count !== undefined
                                                             ? `${log.filler_word_count}회`
                                                             : '-'}
                                                     </strong>
                                                 </div>
                                                 <div>
-                                                    <span>시선 이탈</span>
-                                                    <strong>
+                                                    <span title="3회 이하를 권장합니다. 면접관(렌즈)을 똑바로 응시하며 자신감을 보여주세요." style={{ cursor: 'help' }}>
+                                                        시선 이탈 ℹ️
+                                                    </span>
+                                                    <strong className={log.gaze_loss_count >= 3 ? 'metric-warning' : 'metric-good'}>
                                                         {log.gaze_loss_count !== null && log.gaze_loss_count !== undefined
                                                             ? `${log.gaze_loss_count}회`
                                                             : '-'}
