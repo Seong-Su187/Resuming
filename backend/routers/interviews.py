@@ -90,6 +90,12 @@ router = APIRouter(
     tags=["Interviews"]
 )
 
+# 코랩 MuseTalk 듀오 서버는 요청 하나(GPU 추론+ffmpeg 인코딩)를 처리하는 동안
+# 이벤트 루프가 블로킹되어 동시 요청을 못 받는다. 리액션 아바타 스트림과
+# 다음 질문 프리페치 스트림이 겹쳐서 코랩에 동시에 들어가면 ngrok 게이트웨이가
+# 502를 반환하므로, 코랩으로 나가는 실제 요청만 이 lock으로 직렬화한다.
+_musetalk_colab_lock = asyncio.Lock()
+
 async def build_candidate_answers(
     question_text: str,
     selected_candidates: list[dict],
@@ -253,27 +259,33 @@ async def avatar_video_stream(payload: dict = Body(...)):
 
                 first_chunk_logged = False
                 try:
-                    async with client.stream(
-                        "POST",
-                        duo_stream_url,
-                        json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
-                    ) as response:
-                        if response.status_code != 200:
-                            error_body = await response.aread()
-                            print(
-                                f"[stream-timing] 문장{i + 1} 코랩 서버 응답 오류 "
-                                f"(status={response.status_code}): {error_body[:200]!r}",
-                                flush=True,
-                            )
-                            return
-                        async for chunk in response.aiter_bytes():
-                            if not first_chunk_logged:
+                    async with _musetalk_colab_lock:
+                        print(
+                            f"[stream-timing] 문장{i + 1} 코랩 요청 시작 (lock 획득): "
+                            f"{time.time() - t0:.2f}초",
+                            flush=True,
+                        )
+                        async with client.stream(
+                            "POST",
+                            duo_stream_url,
+                            json={"avatar_type": duo_avatar_type, "audio_base64": audio_base64},
+                        ) as response:
+                            if response.status_code != 200:
+                                error_body = await response.aread()
                                 print(
-                                    f"[stream-timing] 문장{i + 1} 코랩 첫 청크 수신: {time.time() - t0:.2f}초",
+                                    f"[stream-timing] 문장{i + 1} 코랩 서버 응답 오류 "
+                                    f"(status={response.status_code}): {error_body[:200]!r}",
                                     flush=True,
                                 )
-                                first_chunk_logged = True
-                            yield chunk
+                                return
+                            async for chunk in response.aiter_bytes():
+                                if not first_chunk_logged:
+                                    print(
+                                        f"[stream-timing] 문장{i + 1} 코랩 첫 청크 수신: {time.time() - t0:.2f}초",
+                                        flush=True,
+                                    )
+                                    first_chunk_logged = True
+                                yield chunk
                 except httpx.HTTPError as error:
                     print(
                         f"[stream-timing] 문장{i + 1} 코랩 서버 연결 실패: {error}",
@@ -1265,7 +1277,15 @@ async def websocket_interview_endpoint(
                 accumulated_score += earned_score
                 
                 # 🚀 6. 리액션 문구 배정 (50점 기준 얼떨떨함/긍정 풀링 적용)
-                if earned_score >= 50:
+                is_last_question = current_index + 1 >= total_questions
+
+                if is_last_question:
+                    # 마지막 질문에는 "다음 질문 드리겠습니다" 톤이 안 맞으므로 마무리 인사로 고정
+                    reaction_text = random.choice([
+                        "네, 수고하셨습니다. 면접이 모두 종료되었습니다.",
+                        "네, 여기까지 답변 잘 들었습니다. 면접 수고하셨습니다.",
+                    ])
+                elif earned_score >= 50:
                     reaction_text = random.choice([
                         "네, 구체적인 설명 잘 들었습니다. 그럼 다음 질문 드릴게요.",
                         "좋습니다. 명확하게 이해했습니다. 이어서 질문 드리죠.",
@@ -1281,7 +1301,20 @@ async def websocket_interview_endpoint(
                         "네... 조금 당황스러운데, 알겠습니다. 다음 질문 드릴게요.",
                         "아... 질문의 의도와는 조금 다른 것 같지만, 알겠습니다. 다음 질문 드리죠."
                     ])
-                
+
+                # 🚀 리액션은 방금 질문했던(반응하는) 면접관의 만족/불만족 전용 아바타가 말합니다.
+                current_q_type = "technical" if isinstance(current_q_data, str) else current_q_data.get("type", "technical")
+                current_avatar = "middle_aged" if isinstance(current_q_data, str) else current_q_data.get("avatar", "middle_aged")
+                current_duo_avatar_type = "personality" if current_q_type == "hr" else current_q_type
+
+                reaction_variant_pool = (
+                    ["interviewer-avatar-satisfied1", "interviewer-avatar-satisfied3"]
+                    if earned_score >= 50
+                    else ["interviewer-avatar-dissatisfied3", "interviewer-avatar-dissatisfied4"]
+                )
+                reaction_variant = random.choice(reaction_variant_pool)
+                reaction_duo_avatar_type = f"{reaction_variant}_{current_duo_avatar_type}"
+
                 growth_feedback = evaluation.get("growth_feedback", "")
                 
                 if filler_count > 0:
@@ -1351,22 +1384,20 @@ async def websocket_interview_endpoint(
 
                 if current_index < total_questions:
                     next_q_data = questions_list[current_index]
-                    next_q_type = "technical" if isinstance(next_q_data, str) else next_q_data.get("type", "technical")
-                    next_avatar = "middle_aged" if isinstance(next_q_data, str) else next_q_data.get("avatar", "middle_aged")
-                    next_voice = AVATAR_VOICE_MAP.get(next_avatar, "onyx")
-                    duo_avatar_type = "personality" if next_q_type == "hr" else next_q_type
-                    
+
+                    reaction_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
+
                     reaction_tts_task = asyncio.create_task(
-                        _generate_tts_fallback_base64(reaction_text, next_voice)
+                        _generate_tts_fallback_base64(reaction_text, reaction_voice)
                     )
                     reaction_tts_base64 = await reaction_tts_task
-                    
+
                     await websocket.send_json({
                         "type": "interviewer_acknowledgment",
                         "text": reaction_text,
-                        "avatar": next_avatar,
-                        "interviewer_type": next_q_type, 
-                        "duo_avatar_type": duo_avatar_type,
+                        "avatar": current_avatar,
+                        "interviewer_type": current_q_type,
+                        "duo_avatar_type": reaction_duo_avatar_type,
                         "tts_audio_base64": reaction_tts_base64
                     })
 
@@ -1398,23 +1429,21 @@ async def websocket_interview_endpoint(
                     )
                     db.commit()
                     
-                    last_q_data = questions_list[current_index - 1]
-                    last_q_type = "technical" if isinstance(last_q_data, str) else last_q_data.get("type", "technical")
-                    last_avatar = "middle_aged" if isinstance(last_q_data, str) else last_q_data.get("avatar", "middle_aged")
-                    last_voice = AVATAR_VOICE_MAP.get(last_avatar, "onyx")
-                    
-                    final_reaction = f"{reaction_text} 모든 질문이 끝났습니다. 수고하셨습니다. 이것으로 면접을 마치겠습니다."
+                    # 🚀 reaction_text가 이미 마지막 질문용 마무리 인사(is_last_question 분기)이므로
+                    # 여기서 다시 문구를 덧붙이지 않고, 만족/불만족 아바타 변형도 그대로 이어서 씀.
+                    last_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
+
                     reaction_tts_task = asyncio.create_task(
-                        _generate_tts_fallback_base64(final_reaction, last_voice)
+                        _generate_tts_fallback_base64(reaction_text, last_voice)
                     )
                     reaction_tts_base64 = await reaction_tts_task
-                    
+
                     await websocket.send_json({
                         "type": "interviewer_acknowledgment",
-                        "text": final_reaction,
-                        "avatar": last_avatar,
-                        "interviewer_type": last_q_type,
-                        "duo_avatar_type": "personality",
+                        "text": reaction_text,
+                        "avatar": current_avatar,
+                        "interviewer_type": current_q_type,
+                        "duo_avatar_type": reaction_duo_avatar_type,
                         "tts_audio_base64": reaction_tts_base64
                     })
                     

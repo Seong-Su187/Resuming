@@ -43,19 +43,20 @@ function Interview() {
         },
     ];
 
-    // 리액션 스트리밍 요청 시 duo_avatar_type에 사용할 코랩 아바타 변형 이름 후보.
-    const REACTION_AVATAR_VARIANTS = {
-        satisfied: [
-            'interviewer-avatar-satisfied1',
-            'interviewer-avatar-satisfied3',
-        ],
-        dissatisfied: [
-            'interviewer-avatar-dissatisfied3',
-            'interviewer-avatar-dissatisfied4',
-        ],
-    };
+    // 리액션(만족/불만족) 아바타 변형 선택은 이제 백엔드(interviews.py)가 담당합니다
+    // (interviewer_acknowledgment 메시지의 duo_avatar_type으로 이미 조합되어 옴).
 
     const QUESTION_AVATAR_VARIANTS = ['duo', 'main_avatar1', 'main_avatar2'];
+
+    // 질문마다 avatar_duo(기본)/main_avatar1/main_avatar2 중 하나를 매번 랜덤으로 고른다.
+    // 리액션 재생 중 미리 요청을 시작할 때와, 재생 시점에 바로 요청할 때 둘 다 이 함수로 통일해서
+    // "고른 변형"과 "실제로 요청 보낸 변형"이 어긋나지 않게 한다.
+    const pickQuestionDuoAvatarType = (data) => {
+        const questionVariant = getRandomVideo(QUESTION_AVATAR_VARIANTS);
+        return questionVariant === 'duo'
+            ? data.duo_avatar_type
+            : `${questionVariant}_${data.duo_avatar_type}`;
+    };
 
     const getRandomInterviewerDefaultVideo = () => {
         const randomValue = Math.random();
@@ -501,336 +502,354 @@ function Interview() {
         playNextDefaultInterviewerVideo();
     };
 
-    const playInterviewerVideoStream = async (
-        text,
-        avatar,
-        duoAvatarType,
-    ) => {
-        const videoEl = interviewerStreamVideoRef.current;
-
-        if (!videoEl || !text) {
-            return false;
-        }
-
-        if (interviewerStreamAbortRef.current) {
-            interviewerStreamAbortRef.current.abort();
+    // 서버에 스트리밍 요청을 보내고 도착하는 영상 조각들을 메모리에 쌓아두기만 하는 단계.
+    // 화면(video element)에는 아직 아무것도 붙이지 않아서, 리액션이 재생되는 동안 다음 질문의
+    // TTS+MuseTalk 생성을 미리 시작해두는 용도로 쓸 수 있다 (attachFetchToVideo가 나중에 붙임).
+    const startAvatarFetch = (text, avatar, duoAvatarType) => {
+        if (!text) {
+            return null;
         }
 
         const abortController = new AbortController();
-        interviewerStreamAbortRef.current = abortController;
-
-        if (interviewerVideoUrlRef.current) {
-            URL.revokeObjectURL(
-                interviewerVideoUrlRef.current,
-            );
-
-            interviewerVideoUrlRef.current = null;
-        }
-
-        const MIME =
-            'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
-
-        if (
-            !('MediaSource' in window) ||
-            !MediaSource.isTypeSupported(MIME)
-        ) {
-            console.error(
-                '[interview] 이 브라우저는 아바타 영상 스트리밍을 지원하지 않습니다.',
-            );
-
-            restoreDefaultInterviewerVideo();
-
-            return false;
-        }
-
-        let mediaSource = null;
-        let sourceBuffer = null;
-
-        const appendQueue = [];
-
-        let appending = false;
-        let streamDone = false;
-        let monitorTimerId = null;
-        let started = false;
-        let playAllowed = false;
-
-        const flushQueue = () => {
-            if (
-                !mediaSource ||
-                !sourceBuffer ||
-                appending ||
-                appendQueue.length === 0 ||
-                mediaSource.readyState !== 'open'
-            ) {
-                return;
-            }
-
-            appending = true;
-
-            try {
-                sourceBuffer.appendBuffer(
-                    appendQueue.shift(),
-                );
-            } catch (error) {
-                appending = false;
-
-                console.error(
-                    '[interview] 영상 데이터 추가 오류:',
-                    error,
-                );
-            }
+        const handle = {
+            chunks: [],
+            done: false,
+            ok: null,
+            abortController,
+            onChunk: null,
+            onDone: null,
         };
 
-        const monitorBuffer = () => {
-            if (
-                !started ||
-                videoEl.ended ||
-                abortController.signal.aborted
-            ) {
-                return;
-            }
+        (async () => {
+            try {
+                const response = await fetch(
+                    `${API_BASE_URL}/interviews/avatar-video-stream`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            text,
+                            avatar,
+                            duo_avatar_type: duoAvatarType,
+                        }),
+                        signal: abortController.signal,
+                    },
+                );
 
-            const buffered = videoEl.buffered;
+                if (!response.ok || !response.body) {
+                    console.error(
+                        '[interview] 아바타 영상 스트리밍 요청 실패:',
+                        response.status,
+                    );
+                    handle.ok = false;
+                    return;
+                }
 
-            if (buffered.length > 0) {
-                const bufferedEnd =
-                    buffered.end(buffered.length - 1);
+                const reader = response.body.getReader();
 
-                const ahead =
-                    bufferedEnd - videoEl.currentTime;
+                while (true) {
+                    const { done, value } = await reader.read();
 
-                const PAUSE_THRESHOLD = 0.05;
-                const RESUME_THRESHOLD = 1.0;
-
-                if (!streamDone) {
-                    if (
-                        !videoEl.paused &&
-                        ahead < PAUSE_THRESHOLD
-                    ) {
-                        videoEl.pause();
-                    } else if (
-                        videoEl.paused &&
-                        playAllowed &&
-                        ahead >= RESUME_THRESHOLD
-                    ) {
-                        videoEl.play().catch(() => { });
+                    if (done) {
+                        break;
                     }
-                } else if (
-                    videoEl.paused &&
-                    playAllowed
-                ) {
-                    videoEl.play().catch(() => { });
+
+                    if (!value || value.byteLength === 0) {
+                        continue;
+                    }
+
+                    handle.chunks.push(value);
+
+                    if (handle.onChunk) {
+                        handle.onChunk();
+                    }
+                }
+
+                handle.ok = handle.chunks.length > 0;
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error(
+                        '[interview] 아바타 영상 스트리밍 실패:',
+                        error,
+                    );
+                }
+                handle.ok = false;
+            } finally {
+                handle.done = true;
+
+                if (handle.onDone) {
+                    handle.onDone();
                 }
             }
+        })();
 
-            monitorTimerId =
-                setTimeout(monitorBuffer, 200);
-        };
+        return handle;
+    };
 
-        const initializeStreamVideo = async () => {
-            mediaSource = new MediaSource();
+    // startAvatarFetch가 만든 handle(이미 도착한 조각 + 앞으로 도착할 조각)을 실제 화면에
+    // 붙여서 재생한다. handle이 리액션 재생 중에 미리 시작되어 있었다면, 여기 도달했을 때
+    // 이미 상당 부분(또는 전부) 받아둔 상태라 체감 대기 시간이 줄어든다.
+    const attachFetchToVideo = (handle) => {
+        return new Promise((resolveOuter) => {
+            const videoEl = interviewerStreamVideoRef.current;
 
-            const objectUrl =
-                URL.createObjectURL(mediaSource);
-
-            interviewerVideoUrlRef.current =
-                objectUrl;
-
-            isInterviewerStreamPlayingRef.current =
-                true;
-
-            setIsInterviewerStreamVisible(false);
-
-            videoEl.pause();
-            videoEl.loop = false;
-            videoEl.muted = false;
-
-            videoEl.removeAttribute('src');
-            videoEl.src = objectUrl;
-            videoEl.load();
-
-            await new Promise((resolve, reject) => {
-                const handleSourceOpen = () => {
-                    resolve();
-                };
-
-                const handleSourceError = () => {
-                    reject(
-                        new Error(
-                            'MediaSource를 열지 못했습니다.',
-                        ),
-                    );
-                };
-
-                mediaSource.addEventListener(
-                    'sourceopen',
-                    handleSourceOpen,
-                    { once: true },
-                );
-
-                mediaSource.addEventListener(
-                    'error',
-                    handleSourceError,
-                    { once: true },
-                );
-            });
-
-            if (abortController.signal.aborted) {
-                throw new DOMException(
-                    '스트리밍 요청이 취소되었습니다.',
-                    'AbortError',
-                );
+            if (!handle || !videoEl) {
+                resolveOuter(false);
+                return;
             }
 
-            sourceBuffer =
-                mediaSource.addSourceBuffer(MIME);
+            if (
+                interviewerStreamAbortRef.current &&
+                interviewerStreamAbortRef.current !== handle.abortController
+            ) {
+                interviewerStreamAbortRef.current.abort();
+            }
+            interviewerStreamAbortRef.current = handle.abortController;
 
-            sourceBuffer.mode = 'sequence';
+            if (interviewerVideoUrlRef.current) {
+                URL.revokeObjectURL(interviewerVideoUrlRef.current);
+                interviewerVideoUrlRef.current = null;
+            }
 
-            sourceBuffer.addEventListener(
-                'updateend',
-                () => {
+            const MIME = 'video/mp4; codecs="avc1.42E01E, mp4a.40.2"';
+
+            if (
+                !('MediaSource' in window) ||
+                !MediaSource.isTypeSupported(MIME)
+            ) {
+                console.error(
+                    '[interview] 이 브라우저는 아바타 영상 스트리밍을 지원하지 않습니다.',
+                );
+                restoreDefaultInterviewerVideo();
+                resolveOuter(false);
+                return;
+            }
+
+            let mediaSource = null;
+            let sourceBuffer = null;
+            const appendQueue = [];
+            let appending = false;
+            let started = false;
+            let playAllowed = false;
+            let settled = false;
+
+            const finish = (result) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                resolveOuter(result);
+            };
+
+            const flushQueue = () => {
+                if (
+                    !mediaSource ||
+                    !sourceBuffer ||
+                    appending ||
+                    appendQueue.length === 0 ||
+                    mediaSource.readyState !== 'open'
+                ) {
+                    return;
+                }
+
+                appending = true;
+
+                try {
+                    sourceBuffer.appendBuffer(appendQueue.shift());
+                } catch (error) {
+                    appending = false;
+                    console.error(
+                        '[interview] 영상 데이터 추가 오류:',
+                        error,
+                    );
+                }
+            };
+
+            const monitorBuffer = () => {
+                if (
+                    !started ||
+                    videoEl.ended ||
+                    handle.abortController.signal.aborted
+                ) {
+                    return;
+                }
+
+                const buffered = videoEl.buffered;
+
+                if (buffered.length > 0) {
+                    const bufferedEnd = buffered.end(buffered.length - 1);
+                    const ahead = bufferedEnd - videoEl.currentTime;
+                    const PAUSE_THRESHOLD = 0.05;
+                    const RESUME_THRESHOLD = 1.0;
+
+                    if (!handle.done) {
+                        if (!videoEl.paused && ahead < PAUSE_THRESHOLD) {
+                            videoEl.pause();
+                        } else if (
+                            videoEl.paused &&
+                            playAllowed &&
+                            ahead >= RESUME_THRESHOLD
+                        ) {
+                            videoEl.play().catch(() => { });
+                        }
+                    } else if (videoEl.paused && playAllowed) {
+                        videoEl.play().catch(() => { });
+                    }
+                }
+
+                setTimeout(monitorBuffer, 200);
+            };
+
+            const initializeStreamVideo = async () => {
+                mediaSource = new MediaSource();
+                const objectUrl = URL.createObjectURL(mediaSource);
+                interviewerVideoUrlRef.current = objectUrl;
+                isInterviewerStreamPlayingRef.current = true;
+                setIsInterviewerStreamVisible(false);
+
+                videoEl.pause();
+                videoEl.loop = false;
+                videoEl.muted = false;
+                videoEl.removeAttribute('src');
+                videoEl.src = objectUrl;
+                videoEl.load();
+
+                await new Promise((resolve, reject) => {
+                    mediaSource.addEventListener(
+                        'sourceopen',
+                        () => resolve(),
+                        { once: true },
+                    );
+                    mediaSource.addEventListener(
+                        'error',
+                        () => reject(new Error('MediaSource를 열지 못했습니다.')),
+                        { once: true },
+                    );
+                });
+
+                if (handle.abortController.signal.aborted) {
+                    throw new DOMException(
+                        '스트리밍 요청이 취소되었습니다.',
+                        'AbortError',
+                    );
+                }
+
+                sourceBuffer = mediaSource.addSourceBuffer(MIME);
+                sourceBuffer.mode = 'sequence';
+
+                sourceBuffer.addEventListener('updateend', () => {
                     appending = false;
 
-                    if (
-                        streamDone &&
-                        appendQueue.length === 0
-                    ) {
-                        if (
-                            mediaSource.readyState ===
-                            'open'
-                        ) {
+                    if (handle.done && appendQueue.length === 0) {
+                        if (mediaSource.readyState === 'open') {
                             try {
                                 mediaSource.endOfStream();
-                            } catch (error) {
-                            }
+                            } catch (error) { }
                         }
                     } else {
                         flushQueue();
                     }
-                },
-            );
+                });
 
-            sourceBuffer.addEventListener(
-                'error',
-                (error) => {
+                sourceBuffer.addEventListener('error', (error) => {
                     console.error(
                         '[interview] MSE SourceBuffer 오류:',
                         error,
                     );
-                },
-            );
+                });
 
-            started = true;
-            playAllowed = true;
+                started = true;
+                playAllowed = true;
+                monitorBuffer();
+            };
 
-            monitorBuffer();
-        };
+            const handleChunk = async (chunk) => {
+                if (!started) {
+                    try {
+                        await initializeStreamVideo();
+                    } catch (error) {
+                        if (error.name !== 'AbortError') {
+                            console.error(
+                                '[interview] 아바타 영상 스트리밍 실패:',
+                                error,
+                            );
+                            restoreDefaultInterviewerVideo();
+                        }
+                        finish(false);
+                        return;
+                    }
+                }
 
-        try {
-            const response = await fetch(
-                `${API_BASE_URL}/interviews/avatar-video-stream`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        text,
-                        avatar,
-                        duo_avatar_type:
-                            duoAvatarType,
-                    }),
-                    signal:
-                        abortController.signal,
-                },
-            );
+                appendQueue.push(chunk);
+                flushQueue();
+            };
 
-            if (!response.ok) {
-                console.error(
-                    '[interview] 아바타 영상 스트리밍 요청 실패:',
-                    response.status,
-                );
-
-                restoreDefaultInterviewerVideo();
-
-                return false;
-            }
-
-            if (!response.body) {
-                console.error(
-                    '[interview] 아바타 영상 응답 데이터가 없습니다.',
-                );
-
-                restoreDefaultInterviewerVideo();
-
-                return false;
-            }
-
-            const reader =
-                response.body.getReader();
-
-            while (true) {
-                const { done, value } =
-                    await reader.read();
-
-                if (done) {
-                    break;
+            const handleDone = () => {
+                if (!started) {
+                    console.error(
+                        '[interview] 생성된 아바타 영상 데이터가 없습니다.',
+                    );
+                    restoreDefaultInterviewerVideo();
+                    finish(false);
+                    return;
                 }
 
                 if (
-                    !value ||
-                    value.byteLength === 0
+                    mediaSource &&
+                    sourceBuffer &&
+                    !appending &&
+                    appendQueue.length === 0 &&
+                    mediaSource.readyState === 'open'
                 ) {
-                    continue;
+                    try {
+                        mediaSource.endOfStream();
+                    } catch (error) { }
                 }
 
-                if (!started) {
-                    await initializeStreamVideo();
+                finish(true);
+            };
+
+            // 이미 쌓여있던 조각부터 순서대로 처리하고, 처리 도중 새로 도착한 조각도
+            // 다시 이 함수를 호출해 놓치지 않고 이어서 처리한다 (draining 플래그로 중복 실행 방지).
+            let idx = 0;
+            let draining = false;
+
+            const drain = async () => {
+                if (draining) {
+                    return;
                 }
+                draining = true;
 
-                appendQueue.push(value);
-                flushQueue();
-            }
-
-            if (!started) {
-                console.error(
-                    '[interview] 생성된 아바타 영상 데이터가 없습니다.',
-                );
-
-                restoreDefaultInterviewerVideo();
-
-                return false;
-            }
-
-            streamDone = true;
-
-            if (
-                mediaSource &&
-                sourceBuffer &&
-                !appending &&
-                appendQueue.length === 0 &&
-                mediaSource.readyState === 'open'
-            ) {
                 try {
-                    mediaSource.endOfStream();
-                } catch (error) {
+                    while (idx < handle.chunks.length) {
+                        await handleChunk(handle.chunks[idx]);
+                        idx += 1;
+                    }
+                    if (handle.done && idx >= handle.chunks.length) {
+                        handleDone();
+                    }
+                } finally {
+                    draining = false;
                 }
-            }
+            };
 
-            return true;
-        } catch (error) {
-            if (error.name !== 'AbortError') {
-                console.error(
-                    '[interview] 아바타 영상 스트리밍 실패:',
-                    error,
-                );
+            handle.onChunk = () => { drain(); };
+            handle.onDone = () => { drain(); };
 
-                restoreDefaultInterviewerVideo();
-            }
+            drain();
+        });
+    };
 
-            return false;
+    const playInterviewerVideoStream = (text, avatar, duoAvatarType) => {
+        const handle = startAvatarFetch(text, avatar, duoAvatarType);
+
+        if (!handle) {
+            return Promise.resolve(false);
         }
+
+        return attachFetchToVideo(handle);
     };
 
     const getCandidateVideoUrl = (videoUrl) => {
@@ -881,7 +900,7 @@ function Interview() {
         candidateVideoDirectionRef.current = 1;
     };
 
-    const playQuestionStream = (data) => {
+    const playQuestionStream = (data, prefetchHandle) => {
         isReactionStreamActiveRef.current = false;
 
         setQuestionIndex(data.current_index - 1);
@@ -905,17 +924,17 @@ function Interview() {
 
         setIsInterviewerSpeaking(true);
 
-        const questionVariant = getRandomVideo(QUESTION_AVATAR_VARIANTS);
-        const questionDuoAvatarType =
-            questionVariant === 'duo'
-                ? data.duo_avatar_type
-                : `${questionVariant}_${data.duo_avatar_type}`;
+        // 리액션 재생 중에 미리 시작해둔 요청(prefetchHandle)이 있으면 그걸 그대로 이어붙이고,
+        // 없으면(예: 첫 질문처럼 리액션 없이 바로 재생하는 경우) 지금 새로 요청을 시작한다.
+        const streamPromise = prefetchHandle
+            ? attachFetchToVideo(prefetchHandle)
+            : playInterviewerVideoStream(
+                data.question_text,
+                data.avatar,
+                pickQuestionDuoAvatarType(data),
+            );
 
-        playInterviewerVideoStream(
-            data.question_text,
-            data.avatar,
-            questionDuoAvatarType,
-        ).then((success) => {
+        streamPromise.then((success) => {
             if (
                 success === false &&
                 interviewerPlaybackIdRef.current === playbackId
@@ -958,13 +977,13 @@ function Interview() {
         if (isReactionStreamActiveRef.current) {
             isReactionStreamActiveRef.current = false;
 
-            const queuedQuestion = pendingQuestionAfterReactionRef.current;
+            const queued = pendingQuestionAfterReactionRef.current;
 
-            if (queuedQuestion) {
+            if (queued) {
                 pendingQuestionAfterReactionRef.current = null;
 
                 restoreDefaultInterviewerVideo();
-                playQuestionStream(queuedQuestion);
+                playQuestionStream(queued.data, queued.prefetchHandle);
                 return;
             }
         }
@@ -1813,10 +1832,10 @@ function Interview() {
                     ).then((success) => {
                         if (success === false) {
                             isReactionStreamActiveRef.current = false;
-                            const queuedQuestion = pendingQuestionAfterReactionRef.current;
-                            if (queuedQuestion) {
+                            const queued = pendingQuestionAfterReactionRef.current;
+                            if (queued) {
                                 pendingQuestionAfterReactionRef.current = null;
-                                playQuestionStream(queuedQuestion);
+                                playQuestionStream(queued.data, queued.prefetchHandle);
                             }
                         }
                     });
@@ -1854,7 +1873,14 @@ function Interview() {
                     setIsProcessingAnswer(false);
 
                     if (isReactionStreamActiveRef.current) {
-                        pendingQuestionAfterReactionRef.current = data;
+                        // 🚀 리액션이 아직 재생 중이어도, 다음 질문의 TTS+MuseTalk 생성은
+                        // 미리 시작해둔다 (화면에 붙이는 건 리액션이 끝난 뒤).
+                        const prefetchHandle = startAvatarFetch(
+                            data.question_text,
+                            data.avatar,
+                            pickQuestionDuoAvatarType(data),
+                        );
+                        pendingQuestionAfterReactionRef.current = { data, prefetchHandle };
                     } else {
                         playQuestionStream(data);
                     }
