@@ -14,152 +14,151 @@ face_mesh = mp_face_mesh.FaceMesh(
     min_tracking_confidence=0.5
 )
 
-def get_gaze_ratios(base64_image: str) -> tuple[float, float]:
+# 부드러운 이동을 위한 전역 상태 (카메라 짐벌 스무딩 필터용)
+_last_gaze_pos = None
+
+def extract_ratios_from_landmarks(face_landmarks):
     """
-    [기존 연동 유지용] 주어진 이미지에서 고개(Head Pose) 비율과 눈동자(Iris) 비율을 수치로 반환합니다.
+    [🚀 극강의 안정성] 눈의 너비가 아닌 '얼굴 전체 뼈대'를 기준으로 비율을 추출합니다.
     """
-    if not base64_image:
-        return None, None
-        
+    nose_tip = face_landmarks.landmark[1]
+    left_eye_outer = face_landmarks.landmark[33]
+    right_eye_outer = face_landmarks.landmark[263]
+    left_iris = face_landmarks.landmark[468]
+    forehead = face_landmarks.landmark[10]
+    chin = face_landmarks.landmark[152]
+
+    # --- 절대 변하지 않는 얼굴 전체 폭/높이 계산 ---
+    face_min_x = min(left_eye_outer.x, right_eye_outer.x)
+    face_max_x = max(left_eye_outer.x, right_eye_outer.x)
+    face_width = face_max_x - face_min_x
+
+    face_min_y = min(forehead.y, chin.y)
+    face_max_y = max(forehead.y, chin.y)
+    face_height = face_max_y - face_min_y
+
+    # 코와 눈동자를 모두 동일한 '얼굴 전체 크기' 대비 비율로 계산
+    nx = (nose_tip.x - face_min_x) / face_width if face_width > 0 else 0.5
+    ix = (left_iris.x - face_min_x) / face_width if face_width > 0 else 0.5
+    ny = (nose_tip.y - face_min_y) / face_height if face_height > 0 else 0.5
+    iy = (left_iris.y - face_min_y) / face_height if face_height > 0 else 0.5
+
+    return nx, ix, ny, iy
+
+
+def get_gaze_ratios(base64_image: str) -> tuple[float, float, float, float]:
+    """ 주어진 단일 프레임에서 X/Y 비율 추출 """
+    if not base64_image: return None, None, None, None
     try:
-        if "," in base64_image:
-            base64_image = base64_image.split(",")[1]
-            
+        if "," in base64_image: base64_image = base64_image.split(",")[1]
         image_data = base64.b64decode(base64_image)
         np_arr = np.frombuffer(image_data, np.uint8)
         image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if image is None: return None, None, None, None
         
-        if image is None:
-            return None, None
-            
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(image_rgb)
+        results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        if not results.multi_face_landmarks: return None, None, None, None
         
-        if not results.multi_face_landmarks:
-            return None, None
-            
-        face_landmarks = results.multi_face_landmarks[0]
-        
-        nose_tip = face_landmarks.landmark[1]
-        left_eye_outer = face_landmarks.landmark[33]
-        right_eye_outer = face_landmarks.landmark[263]
-        
-        face_width = right_eye_outer.x - left_eye_outer.x
-        nose_ratio = (nose_tip.x - left_eye_outer.x) / face_width if face_width > 0 else 0.5
-        
-        left_iris = face_landmarks.landmark[468]
-        left_eye_inner = face_landmarks.landmark[133]
-        
-        eye_width = left_eye_inner.x - left_eye_outer.x
-        iris_ratio = (left_iris.x - left_eye_outer.x) / eye_width if eye_width > 0 else 0.5
-        
-        return nose_ratio, iris_ratio
-        
+        return extract_ratios_from_landmarks(results.multi_face_landmarks[0])
     except Exception as e:
         print(f"[Vision Analyzer] Get Ratios Error: {e}")
-        return None, None
+        return None, None, None, None
 
 
-def calculate_baselines(frames: list[str]) -> tuple[float, float]:
-    """
-    [기능 1] 시선 영점 조절 (Calibration)
-    """
-    nose_ratios = []
-    iris_ratios = []
+def calculate_baselines(frames: list[str]) -> tuple[float, float, float, float]:
+    """ 중앙 단일 지점 프레임들로 4개 축의 영점(평균값) 조절 """
+    global _last_gaze_pos
+    _last_gaze_pos = None # 영점 조절을 새로 할 때마다 스무딩 기록도 초기화
     
+    nx_list, ix_list, ny_list, iy_list = [], [], [], []
     for b64_img in frames:
-        n_ratio, i_ratio = get_gaze_ratios(b64_img)
-        if n_ratio is not None and i_ratio is not None:
-            nose_ratios.append(n_ratio)
-            iris_ratios.append(i_ratio)
+        nx, ix, ny, iy = get_gaze_ratios(b64_img)
+        if nx is not None:
+            nx_list.append(nx)
+            ix_list.append(ix)
+            ny_list.append(ny)
+            iy_list.append(iy)
 
-    baseline_nose = sum(nose_ratios) / len(nose_ratios) if nose_ratios else 0.5
-    baseline_iris = sum(iris_ratios) / len(iris_ratios) if iris_ratios else 0.5
+    return (
+        sum(nx_list) / len(nx_list) if nx_list else 0.5,
+        sum(ix_list) / len(ix_list) if ix_list else 0.5,
+        sum(ny_list) / len(ny_list) if ny_list else 0.5,
+        sum(iy_list) / len(iy_list) if iy_list else 0.5
+    )
+
+
+def apply_deadzone(val, threshold):
+    """ 미세한 떨림을 0으로 만들어주는 필터 """
+    if abs(val) < threshold:
+        return 0.0
+    return val - threshold if val > 0 else val + threshold
+
+
+def analyze_frame(base64_image: str, bn_x: float, bi_x: float, bn_y: float, bi_y: float) -> tuple[bool, dict]:
+    """ 
+    [🚀 최종 솔루션] X축 비대칭 스케일링 + Y축 과민감도 억제 매핑 
+    """
+    global _last_gaze_pos
     
-    return baseline_nose, baseline_iris
-
-
-def check_gaze_loss(base64_image: str, baseline_nose: float = 0.5, baseline_iris: float = 0.5) -> bool:
-    """
-    [기능 2] 단순 시선 이탈 감지 (기존 호환성)
-    """
-    nose_ratio, iris_ratio = get_gaze_ratios(base64_image)
-    if nose_ratio is None or iris_ratio is None:
-        return True
-    if abs(nose_ratio - baseline_nose) > 0.10:
-        return True
-    if abs(iris_ratio - baseline_iris) > 0.08:
-        return True
-    return False
-
-
-def analyze_frame(base64_image: str, baseline_nose: float = 0.5, baseline_iris: float = 0.5) -> tuple[bool, dict]:
-    """
-    [🚀 통합 최적화 기능] 
-    MediaPipe 이미지 처리를 1번만 수행하여 시선 이탈 여부(is_loss)와 히트맵 좌표(X, Y)를 동시 반환
-    """
-    if not base64_image:
-        return False, {"x": 0.5, "y": 0.5}
-
+    # 에러 시 돌아가는 기본 좌표를 파란 박스 위치로 통일
+    if not base64_image: return False, {"x": 0.45, "y": 0.25}
     try:
-        if "," in base64_image:
-            base64_image = base64_image.split(",")[1]
-
+        if "," in base64_image: base64_image = base64_image.split(",")[1]
         image_data = base64.b64decode(base64_image)
         np_arr = np.frombuffer(image_data, np.uint8)
         image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        if image is None: return False, {"x": 0.45, "y": 0.25}
 
-        if image is None:
-            return False, {"x": 0.5, "y": 0.5}
+        results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        if not results.multi_face_landmarks: return True, {"x": 0.45, "y": 0.25}
 
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        results = face_mesh.process(image_rgb)
+        nx, ix, ny, iy = extract_ratios_from_landmarks(results.multi_face_landmarks[0])
 
-        if not results.multi_face_landmarks:
-            return True, {"x": 0.5, "y": 0.5}
-
-        face_landmarks = results.multi_face_landmarks[0]
+        # --- 1. 편차 계산 ---
+        diff_nx = apply_deadzone(nx - bn_x, 0.002)
+        diff_ix = apply_deadzone(ix - bi_x, 0.002)
         
-        # 랜드마크 추출
-        nose_tip = face_landmarks.landmark[1]
-        left_eye_outer = face_landmarks.landmark[33]
-        right_eye_outer = face_landmarks.landmark[263]
-        left_iris = face_landmarks.landmark[468]
-        left_eye_inner = face_landmarks.landmark[133]
-        
-        # X축 비율 연산 (고개 및 눈동자)
-        face_width = right_eye_outer.x - left_eye_outer.x
-        nose_ratio = (nose_tip.x - left_eye_outer.x) / face_width if face_width > 0 else 0.5
-        
-        eye_width = left_eye_inner.x - left_eye_outer.x
-        iris_ratio = (left_iris.x - left_eye_outer.x) / eye_width if eye_width > 0 else 0.5
+        # Y축 노이즈 방지를 위해 데드존 소폭 상향
+        diff_ny = apply_deadzone(ny - bn_y, 0.005)
+        diff_iy = apply_deadzone(iy - bi_y, 0.005)
 
-        # Y축 비율 연산 (고개 상하 피치, 이마와 턱끝 기준)
-        forehead = face_landmarks.landmark[10]
-        chin = face_landmarks.landmark[152]
-        face_height = chin.y - forehead.y
-        nose_y_ratio = (nose_tip.y - forehead.y) / face_height if face_height > 0 else 0.5
+        # --- 2. X축 비대칭 부스터 가중치 적용 ---
+        if diff_nx < 0:
+            weight_nx = 18.0 
+        else:
+            weight_nx = 8.0  
 
-        # --- 1. 시선 이탈 판정 (기존 룰 동일 적용) ---
+        if diff_ix < 0:
+            weight_ix = 20.0  # 🚀 오른쪽 눈동자 가중치를 25.0에서 20.0으로 조정
+        else:
+            weight_ix = 12.0 
+
+        # 매핑 기준점 (X: 0.45, Y: 0.25)
+        mapped_x = 0.45 - (diff_nx * weight_nx) - (diff_ix * weight_ix)
+        
+        # 눈동자 상하 떨림을 억제하기 위해 눈동자 가중치(iy)를 2.0으로 깎고, 고개 가중치(ny)를 4.0으로 고정합니다.
+        mapped_y = 0.25 + (diff_ny * 4.0) + (diff_iy * 2.0)
+
+        # --- 3. 클램핑 ---
+        target_x = max(0.0, min(1.0, mapped_x))
+        target_y = max(0.0, min(1.0, mapped_y))
+
+        # --- 4. 시선 이탈 판정 ---
         is_loss = False
-        if abs(nose_ratio - baseline_nose) > 0.10 or abs(iris_ratio - baseline_iris) > 0.08:
+        if target_x < 0.10 or target_x > 0.90 or target_y < 0.10 or target_y > 0.90:
             is_loss = True
 
-        # --- 2. 히트맵 좌표 매핑 (진짜 시선 방향 반영) ---
-        # X축: 눈동자 이탈률 편차(-0.08 ~ +0.08)를 0.1 ~ 0.9 좌표로 증폭 변환
-        diff_x = iris_ratio - baseline_iris
-        mapped_x = 0.5 + (diff_x / 0.08) * 0.4
-        
-        # Y축: 고개 상하 편차 (보통 중앙 응시 시 Y비율은 0.5 근처에 형성됨)
-        diff_y = nose_y_ratio - 0.5
-        mapped_y = 0.5 + (diff_y / 0.10) * 0.4
+        # --- 5. 카메라 짐벌 스무딩 (EMA 필터) ---
+        if _last_gaze_pos is None:
+            _last_gaze_pos = {"x": target_x, "y": target_y}
+        else:
+            alpha = 0.2
+            smoothed_x = (_last_gaze_pos["x"] * (1.0 - alpha)) + (target_x * alpha)
+            smoothed_y = (_last_gaze_pos["y"] * (1.0 - alpha)) + (target_y * alpha)
+            _last_gaze_pos = {"x": smoothed_x, "y": smoothed_y}
 
-        # 범위 클램핑 (0.0 ~ 1.0)
-        mapped_x = max(0.0, min(1.0, mapped_x))
-        mapped_y = max(0.0, min(1.0, mapped_y))
-
-        return is_loss, {"x": mapped_x, "y": mapped_y}
+        return is_loss, _last_gaze_pos
 
     except Exception as e:
-        print(f"[Vision Analyzer] Analyze Frame Error: {e}")
-        return False, {"x": 0.5, "y": 0.5}
+        print(f"[Vision Analyzer] Analyze Error: {e}")
+        return False, {"x": 0.45, "y": 0.25}

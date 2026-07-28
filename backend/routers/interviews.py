@@ -297,20 +297,20 @@ async def calibrate_vision_endpoint(payload: dict = Body(...)):
     frames = payload.get("frames", [])
     
     if not frames:
-        return {"baseline_nose": 0.5, "baseline_iris": 0.5}
+        return {"baseline_nose_x": 0.5, "baseline_iris_x": 0.5, "baseline_nose_y": 0.5, "baseline_iris_y": 0.5}
 
     try:
         from vision_analyzer import calculate_baselines
-        nose, iris = calculate_baselines(frames)
+        nx, ix, ny, iy = calculate_baselines(frames)
         return {
-            "baseline_nose": nose, 
-            "baseline_iris": iris
+            "baseline_nose_x": nx, 
+            "baseline_iris_x": ix,
+            "baseline_nose_y": ny,
+            "baseline_iris_y": iy
         }
-    except ImportError:
-        return {"baseline_nose": 0.5, "baseline_iris": 0.5}
     except Exception as e:
         print(f"[Calibration Error] 영점 조절 분석 중 오류: {e}")
-        return {"baseline_nose": 0.5, "baseline_iris": 0.5}
+        return {"baseline_nose_x": 0.5, "baseline_iris_x": 0.5, "baseline_nose_y": 0.5, "baseline_iris_y": 0.5}
 
 
 @router.post("/session")
@@ -1241,8 +1241,6 @@ async def websocket_interview_endpoint(
     selected_candidates: list[dict] = []
     
     current_gaze_loss_count = 0 
-    
-    # 🚀 시선 위치(좌표) 누적 배열 추가
     gaze_coordinates = []
 
     try:
@@ -1255,19 +1253,12 @@ async def websocket_interview_endpoint(
             message_type = data.get("type")
 
             if message_type == "start_interview":
-                received_candidates = data.get(
-                    "selected_candidates",
-                    [],
-                )
-
+                received_candidates = data.get("selected_candidates", [])
                 selected_candidates = [
                     {
                         "id": candidate.get("id"),
                         "name": candidate.get("name", "지원자"),
-                        "description": candidate.get(
-                            "description",
-                            "",
-                        ),
+                        "description": candidate.get("description", ""),
                     }
                     for candidate in received_candidates
                     if isinstance(candidate, dict)
@@ -1282,24 +1273,37 @@ async def websocket_interview_endpoint(
                     reaction_text="",
                 )
 
-            # 🚀 수정된 부분: analyze_frame 을 통해 1번 연산으로 loss 판정과 좌표를 동시 획득
             elif message_type == "video_frame":
                 is_recording = data.get("is_recording", False)
                 
                 if is_recording:
                     b64_image = data.get("image", "")
-                    baseline_nose = data.get("baseline_nose", 0.5)
-                    baseline_iris = data.get("baseline_iris", 0.5)
+                    
+                    # 🚀 프론트엔드에서 수신한 중앙 단일 영점 데이터 4개를 받아옵니다.
+                    bn_x = data.get("baseline_nose_x", 0.5)
+                    bi_x = data.get("baseline_iris_x", 0.5)
+                    bn_y = data.get("baseline_nose_y", 0.5)
+                    bi_y = data.get("baseline_iris_y", 0.5)
                     
                     if b64_image:
                         try:
                             from vision_analyzer import analyze_frame
-                            is_loss, gaze_pos = analyze_frame(b64_image, baseline_nose, baseline_iris)
+                            
+                            is_loss, gaze_pos = analyze_frame(
+                                b64_image, bn_x, bi_x, bn_y, bi_y
+                            )
                             
                             if is_loss:
                                 current_gaze_loss_count += 1
                             if gaze_pos:
                                 gaze_coordinates.append(gaze_pos)
+                                
+                                await websocket.send_json({
+                                    "type": "realtime_gaze",
+                                    "x": gaze_pos["x"],
+                                    "y": gaze_pos["y"],
+                                    "is_loss": is_loss
+                                })
                         except Exception as e:
                             logger.error(f"[Vision AI Error] 프레임 분석 중 오류: {e}")
 
@@ -1329,21 +1333,11 @@ async def websocket_interview_endpoint(
                 current_question_text = current_q_data if isinstance(current_q_data, str) else current_q_data.get("question", "")
 
                 rag_result = db.execute(
-                    text("""
-                        SELECT ideal_answer
-                        FROM interview_rag_store
-                        WHERE job_category = :job
-                        LIMIT 1
-                    """),
+                    text("SELECT ideal_answer FROM interview_rag_store WHERE job_category = :job LIMIT 1"),
                     {"job": job_category},
                 ).fetchone()
 
-                ideal_answer = (
-                    rag_result[0]
-                    if rag_result
-                    else ""
-                )
-
+                ideal_answer = rag_result[0] if rag_result else ""
                 filler_count, found_fillers = count_filler_words(user_text)
                 
                 current_metrics = {
@@ -1383,30 +1377,19 @@ async def websocket_interview_endpoint(
                     
                     if past_log:
                         past_record = {
-                            "past_question": past_log[0],
-                            "past_answer": past_log[1],
-                            "past_score": past_log[2],
-                            "past_jitter": past_log[3],
-                            "past_shimmer": past_log[4],
-                            "past_filler": past_log[5],
+                            "past_question": past_log[0], "past_answer": past_log[1], "past_score": past_log[2],
+                            "past_jitter": past_log[3], "past_shimmer": past_log[4], "past_filler": past_log[5],
                             "past_gaze": past_log[6]
                         }
 
                 evaluation = evaluate_answer_with_llm(
-                    current_question_text,
-                    user_text,
-                    ideal_answer,
-                    current_metrics=current_metrics,
-                    past_record=past_record
+                    current_question_text, user_text, ideal_answer,
+                    current_metrics=current_metrics, past_record=past_record
                 )
 
                 earned_score = evaluation.get("score", 0)
-                feedback_text = evaluation.get(
-                    "feedback",
-                    "오류",
-                )
+                feedback_text = evaluation.get("feedback", "오류")
                 accumulated_score += earned_score
-                
                 is_last_question = current_index + 1 >= total_questions
 
                 if timed_out:
@@ -1419,20 +1402,9 @@ async def websocket_interview_endpoint(
                         "네, 여기까지 답변 잘 들었습니다. 면접 수고하셨습니다.",
                     ])
                 elif earned_score >= 50:
-                    reaction_text = random.choice([
-                        "네, 구체적인 설명 잘 들었습니다. 그럼 다음 질문 드릴게요.",
-                        "좋습니다. 명확하게 이해했습니다. 이어서 질문 드리죠.",
-                        "네, 답변 잘 들었습니다. 그럼 다음 질문으로 넘어가겠습니다.",
-                        "좋은 경험이네요. 답변 감사합니다. 다음 질문 드리겠습니다."
-                    ])
+                    reaction_text = random.choice(["네, 구체적인 설명 잘 들었습니다. 그럼 다음 질문 드릴게요.", "좋습니다. 명확하게 이해했습니다. 이어서 질문 드리죠.", "네, 답변 잘 들었습니다. 그럼 다음 질문으로 넘어가겠습니다."])
                 else:
-                    reaction_text = random.choice([
-                        "아... 네, 알겠습니다. 다음 질문 드릴게요.",
-                        "음... 네, 일단 알겠습니다. 이어서 질문드리죠.",
-                        "아, 네... 확인했습니다. 다음 질문으로 넘어가겠습니다.",
-                        "네... 조금 당황스러운데, 알겠습니다. 다음 질문 드릴게요.",
-                        "아... 질문의 의도와는 조금 다른 것 같지만, 알겠습니다. 다음 질문 드리죠."
-                    ])
+                    reaction_text = random.choice(["아... 네, 알겠습니다. 다음 질문 드릴게요.", "음... 네, 일단 알겠습니다. 이어서 질문드리죠.", "아, 네... 확인했습니다. 다음 질문으로 넘어가겠습니다."])
 
                 current_q_type = "technical" if isinstance(current_q_data, str) else current_q_data.get("type", "technical")
                 current_avatar = "middle_aged" if isinstance(current_q_data, str) else current_q_data.get("avatar", "middle_aged")
@@ -1453,58 +1425,29 @@ async def websocket_interview_endpoint(
                 growth_feedback = evaluation.get("growth_feedback", "")
                 
                 if filler_count > 0:
-                    feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다. 불필요한 습관어는 전문성을 떨어뜨릴 수 있으니 유의해 주세요."
+                    feedback_text += f"\n\n[습관어 교정]: 답변 중 '{', '.join(found_fillers)}' 등의 습관어가 총 {filler_count}회 감지되었습니다."
                 if current_gaze_loss_count >= 3:
                     feedback_text += f"\n\n[태도 교정]: 답변 중 화면 밖으로 시선이 벗어난 횟수가 {current_gaze_loss_count}회 감지되었습니다. 면접관과 눈을 맞추듯 렌즈를 응시하세요."
-                
                 if growth_feedback:
                     feedback_text += f"\n\n[성장 분석]: {growth_feedback}"
 
-                # 🚀 DB에 heatmap_data(좌표 배열 JSON) 적재
                 log_query = text("""
                     INSERT INTO qa_logs (
-                        session_id,
-                        question,
-                        transcribed_text,
-                        jitter_shaken_percentage,
-                        shimmer_shaken_percentage,
-                        speed_difference_wpm,
-                        score,
-                        feedback,
-                        filler_word_count,
-                        gaze_loss_count,
-                        heatmap_data,
-                        answer_embedding
-                    )
-                    VALUES (
-                        CAST(:session_id AS UUID),
-                        :question,
-                        :transcribed_text,
-                        :jitter,
-                        :shimmer,
-                        :wpm,
-                        :score,
-                        :feedback,
-                        :filler,
-                        :gaze,
-                        :heatmap_data,
-                        CAST(:answer_embedding AS vector)
+                        session_id, question, transcribed_text, jitter_shaken_percentage,
+                        shimmer_shaken_percentage, speed_difference_wpm, score, feedback,
+                        filler_word_count, gaze_loss_count, heatmap_data, answer_embedding
+                    ) VALUES (
+                        CAST(:session_id AS UUID), :question, :transcribed_text, :jitter,
+                        :shimmer, :wpm, :score, :feedback, :filler, :gaze, :heatmap_data, CAST(:answer_embedding AS vector)
                     )
                 """)
 
                 db.execute(
                     log_query,
                     {
-                        "session_id": session_id,
-                        "question": current_question_text,
-                        "transcribed_text": user_text,
-                        "jitter": jitter_delta,
-                        "shimmer": shimmer_delta,
-                        "wpm": wpm_delta,
-                        "score": earned_score,
-                        "feedback": feedback_text,
-                        "filler": filler_count,
-                        "gaze": current_gaze_loss_count,
+                        "session_id": session_id, "question": current_question_text, "transcribed_text": user_text,
+                        "jitter": jitter_delta, "shimmer": shimmer_delta, "wpm": wpm_delta, "score": earned_score,
+                        "feedback": feedback_text, "filler": filler_count, "gaze": current_gaze_loss_count,
                         "heatmap_data": json.dumps(gaze_coordinates) if gaze_coordinates else None,
                         "answer_embedding": str(current_answer_emb) if current_answer_emb else None
                     },
@@ -1512,85 +1455,42 @@ async def websocket_interview_endpoint(
                 db.commit()
 
                 await websocket.send_json({
-                    "type": "qa_feedback",
-                    "question": current_question_text,
-                    "score": earned_score,
-                    "feedback": feedback_text,
+                    "type": "qa_feedback", "question": current_question_text, "score": earned_score, "feedback": feedback_text,
                 })
 
-                # 다음 질문 준비 시 카운트 및 좌표 배열 초기화
                 current_index += 1
                 current_gaze_loss_count = 0 
                 gaze_coordinates = []
 
                 if current_index < total_questions:
                     next_q_data = questions_list[current_index]
-
                     reaction_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
-
-                    reaction_tts_task = asyncio.create_task(
-                        _generate_tts_fallback_base64(reaction_text, reaction_voice)
-                    )
-                    reaction_tts_base64 = await reaction_tts_task
+                    reaction_tts_base64 = await asyncio.create_task(_generate_tts_fallback_base64(reaction_text, reaction_voice))
 
                     await websocket.send_json({
-                        "type": "interviewer_acknowledgment",
-                        "text": reaction_text,
-                        "avatar": current_avatar,
-                        "interviewer_type": current_q_type,
-                        "duo_avatar_type": reaction_duo_avatar_type,
+                        "type": "interviewer_acknowledgment", "text": reaction_text, "avatar": current_avatar,
+                        "interviewer_type": current_q_type, "duo_avatar_type": reaction_duo_avatar_type,
                         "tts_audio_base64": reaction_tts_base64
                     })
 
                     await asyncio.sleep(2.5)
-
                     await send_next_question(
-                        websocket,
-                        next_q_data,
-                        current_index + 1,
-                        total_questions,
-                        selected_candidates,
-                        reaction_text="", 
+                        websocket, next_q_data, current_index + 1, total_questions, selected_candidates, reaction_text="", 
                     )
                 else:
-                    final_avg_score = int(
-                        accumulated_score / total_questions
-                    )
-
-                    db.execute(
-                        text("""
-                            UPDATE interview_sessions
-                            SET overall_score = :score
-                            WHERE id = CAST(:id AS UUID)
-                        """),
-                        {
-                            "score": final_avg_score,
-                            "id": session_id,
-                        },
-                    )
+                    final_avg_score = int(accumulated_score / total_questions)
+                    db.execute(text("UPDATE interview_sessions SET overall_score = :score WHERE id = CAST(:id AS UUID)"), {"score": final_avg_score, "id": session_id})
                     db.commit()
                     
                     last_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
-
-                    reaction_tts_task = asyncio.create_task(
-                        _generate_tts_fallback_base64(reaction_text, last_voice)
-                    )
-                    reaction_tts_base64 = await reaction_tts_task
+                    reaction_tts_base64 = await asyncio.create_task(_generate_tts_fallback_base64(reaction_text, last_voice))
 
                     await websocket.send_json({
-                        "type": "interviewer_acknowledgment",
-                        "text": reaction_text,
-                        "avatar": current_avatar,
-                        "interviewer_type": current_q_type,
-                        "duo_avatar_type": reaction_duo_avatar_type,
-                        "tts_audio_base64": reaction_tts_base64
+                        "type": "interviewer_acknowledgment", "text": reaction_text, "avatar": current_avatar,
+                        "interviewer_type": current_q_type, "duo_avatar_type": reaction_duo_avatar_type, "tts_audio_base64": reaction_tts_base64
                     })
-                    
                     await asyncio.sleep(3.5)
-
-                    await websocket.send_json({
-                        "type": "interview_completed",
-                    })
+                    await websocket.send_json({"type": "interview_completed"})
 
     except WebSocketDisconnect:
         print("연결 종료")

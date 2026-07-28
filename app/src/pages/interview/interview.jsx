@@ -86,15 +86,18 @@ function Interview() {
     // 웹캠 및 비전 AI 처리 Refs
     const userVideoRef = useRef(null);
     const canvasRef = useRef(null);
+    
+    // 백엔드 전송용 (좌우 반전되지 않은 원본) 캔버스 추가
+    const originalCanvasRef = useRef(document.createElement('canvas')); 
+    
     const bgImageRef = useRef(new Image());
     const selfieSegmentationRef = useRef(null);
     const renderLoopRef = useRef(null);
 
-    // 시선 영점 조절용 State
-    const [calibrationPhase, setCalibrationPhase] = useState('hr_ready');
+    // 단일 지점(중앙) 영점 조절용 State
+    const [calibrationPhase, setCalibrationPhase] = useState('ready');
     const [baselines, setBaselines] = useState({
-        hrNose: 0.5, hrIris: 0.5,
-        techNose: 0.5, techIris: 0.5
+        noseX: 0.5, irisX: 0.5, noseY: 0.5, irisY: 0.5
     });
     const [calibrationCountdown, setCalibrationCountdown] = useState(0);
 
@@ -127,9 +130,13 @@ function Interview() {
     const answerStreamRef = useRef(null);
     const answerChunksRef = useRef([]);
 
-    // 🚀 타이머 및 자동 녹음 상태 
+    // 타이머 및 자동 녹음 상태 
     const [answerTimeLeft, setAnswerTimeLeft] = useState(60);
     const [autoRecordCountdown, setAutoRecordCountdown] = useState(null);
+
+    // 실시간 시선 트래킹용 State
+    const [realtimeGaze, setRealtimeGaze] = useState({ x: 0.5, y: 0.5 });
+    const [isGazeLoss, setIsGazeLoss] = useState(false);
 
     // 면접 모드 선택 (기술, 인성, 혼합)
     const [interviewCategory, setInterviewCategory] = useState('mixed');
@@ -280,7 +287,6 @@ function Interview() {
         return `${interviewCategoryLabel} ${candidateProgressLabel}`;
     })();
 
-    // 🚀 1분 타이머 강제 종료 로직 (클로저 버그 해결됨)
     useEffect(() => {
         let timer;
         if (isRecordingAnswer && answerTimeLeft > 0) {
@@ -297,7 +303,6 @@ function Interview() {
         return () => clearTimeout(timer);
     }, [isRecordingAnswer, answerTimeLeft]);
 
-    // 🚀 5초 자동 녹음 타이머 (사용자는 버튼 못 누르고 무조건 이 타이머가 끝나야 마이크 켜짐)
     useEffect(() => {
         let timer;
         if (autoRecordCountdown !== null && autoRecordCountdown > 0) {
@@ -305,7 +310,6 @@ function Interview() {
                 setAutoRecordCountdown(prev => prev - 1);
             }, 1000);
         } else if (autoRecordCountdown === 0) {
-            // 0초가 되면 상태 초기화하고 강제 startAnswerRecording 실행
             setAutoRecordCountdown(null);
             if (!isRecordingAnswerRef.current && step === 'answer' && !isInterviewerSpeaking && !hasUserAnsweredCurrentQuestion) {
                 startAnswerRecording();
@@ -341,7 +345,6 @@ function Interview() {
     const isUserTurnActive =
         isRecordingAnswer || isStartingAnswerRecording;
 
-    // 🚀 processStatus에 5초 카운트다운 안내 명시
     const processStatus = (() => {
         if (step === 'record') {
             if (isBaselineChecking) {
@@ -385,7 +388,6 @@ function Interview() {
             return null;
         }
         if (step === 'answer') {
-            // 🚀 사용자가 5초 기다리도록 화면에 크고 명확하게 표시
             if (autoRecordCountdown !== null && autoRecordCountdown > 0) {
                 return {
                     type: 'processing',
@@ -1764,25 +1766,19 @@ function Interview() {
         }
 
         setStep('calibrate_vision');
-        setCalibrationPhase('hr_ready');
+        setCalibrationPhase('ready');
         setCalibrationCountdown(3);
 
         addMessage(
             'system',
-            '시선 추적을 위한 영점 조절을 2단계로 진행합니다. 먼저 왼쪽에 있는 인사 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.',
+            '정확한 시선 추적을 위해 파란색 점선 박스 영역을 바라보고 영점 조절 시작 버튼을 눌러주세요.',
         );
     };
 
     const handleStartCalibration = () => {
-        const currentPhase = calibrationPhase;
-        const targetType = currentPhase === 'hr_ready' ? 'hr' : 'tech';
-
-        if (currentPhase === 'hr_ready') {
-            setCalibrationPhase('hr_calibrating');
-            addMessage('system', '정확한 시선 분석을 위해 왼쪽 인사 면접관의 눈을 바라봐 주세요.');
-        } else if (currentPhase === 'tech_ready') {
-            setCalibrationPhase('tech_calibrating');
-            addMessage('system', '정확한 시선 분석을 위해 오른쪽 기술 면접관의 눈을 바라봐 주세요.');
+        if (calibrationPhase === 'ready') {
+            setCalibrationPhase('calibrating');
+            addMessage('system', '파란색 박스 안을 응시하며 잠시만 기다려주세요.');
         }
 
         setCalibrationCountdown(3);
@@ -1794,20 +1790,20 @@ function Interview() {
             countdown -= 1;
             setCalibrationCountdown(countdown);
 
-            if (canvasRef.current) {
-                const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.5);
+            if (originalCanvasRef.current) {
+                const base64Image = originalCanvasRef.current.toDataURL('image/jpeg', 0.5);
                 capturedFrames.push(base64Image);
             }
 
             if (countdown === 0) {
                 clearInterval(timer);
-                finishVisionCalibration(targetType, capturedFrames);
+                finishVisionCalibration(capturedFrames);
             }
         }, 1000);
     };
 
-    const finishVisionCalibration = async (type, frames) => {
-        addMessage('system', `${type === 'hr' ? '왼쪽(인사)' : '오른쪽(기술)'} 시선 추적 기준점을 계산하고 있습니다...`);
+    const finishVisionCalibration = async (frames) => {
+        addMessage('system', `시선 추적 영점을 계산하고 있습니다...`);
         try {
             const response = await fetch(`${API_BASE_URL}/interviews/calibrate-vision`, {
                 method: 'POST',
@@ -1818,29 +1814,22 @@ function Interview() {
             const data = await response.json();
 
             if (response.ok) {
-                if (type === 'hr') {
-                    setBaselines(prev => ({ ...prev, hrNose: data.baseline_nose, hrIris: data.baseline_iris }));
-                    setCalibrationPhase('tech_ready');
-                    addMessage('system', '왼쪽 영점 조절이 완료되었습니다. 이어서 오른쪽 기술 면접관의 눈을 바라보고 영점 조절 시작 버튼을 눌러주세요.');
-                } else {
-                    setBaselines(prev => ({ ...prev, techNose: data.baseline_nose, techIris: data.baseline_iris }));
-                    addMessage('system', '오른쪽 영점 조절이 완료되었습니다. 곧 면접이 시작됩니다.');
-                    connectWebSocket();
-                }
+                setBaselines({ 
+                    noseX: data.baseline_nose_x, 
+                    irisX: data.baseline_iris_x,
+                    noseY: data.baseline_nose_y, 
+                    irisY: data.baseline_iris_y 
+                });
+                addMessage('system', '영점 조절이 완료되었습니다. 곧 면접이 시작됩니다.');
+                connectWebSocket();
             } else {
                 throw new Error("분석 실패");
             }
         } catch (error) {
             console.error('Vision Calibration Error:', error);
-            if (type === 'hr') {
-                setBaselines(prev => ({ ...prev, hrNose: 0.5, hrIris: 0.5 }));
-                setCalibrationPhase('tech_ready');
-                addMessage('system', '왼쪽 영점 조절에 실패하여 기본값으로 설정되었습니다. 이어서 오른쪽 기술 면접관의 눈을 바라보고 시작 버튼을 눌러주세요.');
-            } else {
-                setBaselines(prev => ({ ...prev, techNose: 0.5, techIris: 0.5 }));
-                addMessage('system', '오른쪽 영점 조절에 실패하여 기본값으로 설정되었습니다. 곧 면접이 시작됩니다.');
-                connectWebSocket();
-            }
+            setBaselines({ noseX: 0.5, irisX: 0.5, noseY: 0.5, irisY: 0.5 });
+            addMessage('system', '영점 조절에 실패하여 기본값으로 설정되었습니다. 곧 면접이 시작됩니다.');
+            connectWebSocket();
         }
     };
 
@@ -1893,6 +1882,12 @@ function Interview() {
                         }
                     });
 
+                    return;
+                }
+
+                if (data.type === 'realtime_gaze') {
+                    setRealtimeGaze({ x: data.x, y: data.y });
+                    setIsGazeLoss(data.is_loss);
                     return;
                 }
 
@@ -2127,7 +2122,6 @@ function Interview() {
 
             recorder.start(1000);
 
-            // 🚀 타이머 초기화 (60초 셋업)
             setAnswerTimeLeft(60);
             isRecordingAnswerRef.current = true;
             setIsRecordingAnswer(true);
@@ -2377,6 +2371,11 @@ function Interview() {
             const videoElement = userVideoRef.current;
             const canvasElement = canvasRef.current;
             const canvasCtx = canvasElement.getContext('2d');
+            
+            const originalCanvas = originalCanvasRef.current;
+            originalCanvas.width = 640;
+            originalCanvas.height = 360;
+            const originalCtx = originalCanvas.getContext('2d');
 
             bgImageRef.current.src = '/office_background.jpg';
 
@@ -2389,6 +2388,11 @@ function Interview() {
             });
 
             selfieSegmentation.onResults((results) => {
+                originalCtx.save();
+                originalCtx.clearRect(0, 0, originalCanvas.width, originalCanvas.height);
+                originalCtx.drawImage(results.image, 0, 0, originalCanvas.width, originalCanvas.height);
+                originalCtx.restore();
+
                 canvasCtx.save();
                 canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
 
@@ -2649,25 +2653,18 @@ function Interview() {
         let interval;
         if (step === 'answer' && isCameraActive && websocketRef.current?.readyState === WebSocket.OPEN) {
             interval = setInterval(() => {
-                if (canvasRef.current) {
-                    const base64Image = canvasRef.current.toDataURL('image/jpeg', 0.6);
-
-                    const activeNose = currentInterviewer === 'tech' ? baselines.techNose : baselines.hrNose;
-                    const activeIris = currentInterviewer === 'tech' ? baselines.techIris : baselines.hrIris;
+                if (originalCanvasRef.current) {
+                    const base64Image = originalCanvasRef.current.toDataURL('image/jpeg', 0.6);
 
                     websocketRef.current.send(
                         JSON.stringify({
                             type: 'video_frame',
                             image: base64Image,
-                            current_target: currentInterviewer,
-                            baseline_nose: activeNose,
-                            baseline_iris: activeIris,
-                            is_recording: isRecordingAnswerRef.current,
-
-                            baseline_nose_hr: baselines.hrNose,
-                            baseline_iris_hr: baselines.hrIris,
-                            baseline_nose_tech: baselines.techNose,
-                            baseline_iris_tech: baselines.techIris
+                            baseline_nose_x: baselines.noseX,
+                            baseline_iris_x: baselines.irisX,
+                            baseline_nose_y: baselines.noseY,
+                            baseline_iris_y: baselines.irisY,
+                            is_recording: isRecordingAnswerRef.current
                         })
                     );
                 }
@@ -2675,7 +2672,7 @@ function Interview() {
         }
 
         return () => clearInterval(interval);
-    }, [step, isCameraActive, baselines, currentInterviewer]);
+    }, [step, isCameraActive, baselines]);
 
     // 전역 클린업
     useEffect(() => {
@@ -2995,7 +2992,7 @@ function Interview() {
         }
 
         if (step === 'calibrate_vision') {
-            if (calibrationPhase === 'hr_ready') {
+            if (calibrationPhase === 'ready') {
                 return (
                     <button
                         type="button"
@@ -3003,12 +3000,12 @@ function Interview() {
                         onClick={handleStartCalibration}
                     >
                         <span className="action-icon">🎯</span>
-                        인사 면접관(왼쪽) 영점 조절 시작
+                        영점 조절 시작
                     </button>
                 );
             }
 
-            if (calibrationPhase === 'hr_calibrating') {
+            if (calibrationPhase === 'calibrating') {
                 return (
                     <button
                         type="button"
@@ -3016,34 +3013,7 @@ function Interview() {
                         disabled
                     >
                         <span className="action-icon">👁️</span>
-                        왼쪽 인사 면접관을 바라보세요 ({calibrationCountdown}초)
-                    </button>
-                );
-            }
-
-            if (calibrationPhase === 'tech_ready') {
-                return (
-                    <button
-                        type="button"
-                        className="interview-action-button record-button"
-                        onClick={handleStartCalibration}
-                        style={{ backgroundColor: '#2d6a4f' }}
-                    >
-                        <span className="action-icon">🎯</span>
-                        기술 면접관(오른쪽) 영점 조절 시작
-                    </button>
-                );
-            }
-
-            if (calibrationPhase === 'tech_calibrating') {
-                return (
-                    <button
-                        type="button"
-                        className="interview-action-button record-button recording"
-                        disabled
-                    >
-                        <span className="action-icon">👁️</span>
-                        오른쪽 기술 면접관을 바라보세요 ({calibrationCountdown}초)
+                        파란색 박스를 바라보세요 ({calibrationCountdown}초)
                     </button>
                 );
             }
@@ -3059,13 +3029,11 @@ function Interview() {
                                 ? 'recording'
                                 : ''
                                 }`}
-                            // 🚀 녹음 중일 때만 종료(제출) 버튼으로 작동하도록 제한
                             onClick={
                                 isRecordingAnswer
                                     ? stopAnswerRecording
                                     : undefined
                             }
-                            // 🚀 마이크 버튼 수동 시작 차단 (자동 녹음만 허용)
                             disabled={
                                 !isRecordingAnswer ||
                                 isProcessingAnswer
@@ -3077,7 +3045,6 @@ function Interview() {
                                     : '⏳'}
                             </span>
 
-                            {/* 🚀 하단 보라색 버튼 텍스트 변경: 남은 시간 명시 */}
                             {isRecordingAnswer
                                 ? `답변 녹음 종료 (${answerTimeLeft}초 남음)`
                                 : isInterviewerSpeaking
@@ -3684,17 +3651,36 @@ function Interview() {
                         />
                     ))}
 
+                    {/* 🚀 파란색 점선 박스의 위치를 25% (Y) 로 최종 수정 */}
                     {step === 'calibrate_vision' && (
                         <div
-                            className={`calibration-target-box ${calibrationPhase.startsWith('hr')
-                                ? 'calibration-target-hr'
-                                : 'calibration-target-tech'
-                                }`}
+                            className="calibration-target-box"
+                            style={{ 
+                                position: 'absolute',
+                                left: '45%', 
+                                top: '25%',  // 🚀 요청하신 25% 로 수정
+                                transform: 'translate(-50%, -50%)',
+                                width: '180px',
+                                height: '240px',
+                                border: '3px dashed #3498db',
+                                borderRadius: '12px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                                zIndex: 20,
+                                boxShadow: '0 0 15px rgba(52, 152, 219, 0.3)'
+                            }}
                         >
-                            <span>
-                                {calibrationPhase.startsWith('hr')
-                                    ? '인사 면접관의 눈을 바라보세요'
-                                    : '기술 면접관의 눈을 바라보세요'}
+                            <span style={{ 
+                                color: '#fff', 
+                                fontWeight: 'bold', 
+                                textShadow: '1px 1px 4px rgba(0,0,0,0.8)',
+                                textAlign: 'center',
+                                wordBreak: 'keep-all',
+                                fontSize: '14px'
+                            }}>
+                                이곳을<br/>응시해주세요
                             </span>
                         </div>
                     )}
@@ -3758,6 +3744,24 @@ function Interview() {
                             }
                         }}
                     />
+
+                    {/* 🚀 실시간 시선 포인터 */}
+                    {isRecordingAnswer && isCameraActive && (
+                        <div style={{
+                            position: 'absolute',
+                            top: `${realtimeGaze.y * 100}%`,
+                            left: `${realtimeGaze.x * 100}%`,
+                            width: '24px', 
+                            height: '24px',
+                            backgroundColor: isGazeLoss ? '#FF453A' : '#34C759',
+                            borderRadius: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            transition: 'top 0.1s ease-out, left 0.1s ease-out, background-color 0.2s',
+                            zIndex: 100, 
+                            boxShadow: '0 0 12px rgba(0,0,0,0.8), 0 0 4px rgba(255,255,255,0.8)',
+                            pointerEvents: 'none' 
+                        }} />
+                    )}
                 </div>
 
                 {activeCandidateAnswer && (
@@ -3795,7 +3799,6 @@ function Interview() {
                         }`}
                 />
 
-                {/* 🚀 좌측 상단 배지 타이머 표시 업데이트 */}
                 <div className="interview-status">
                     <span
                         className={`status-dot ${isRecordingAnswer
@@ -3978,7 +3981,7 @@ function Interview() {
             </section>
 
             <aside className="interview-right">
-                <section className="user-camera-area">
+                <section className="user-camera-area" style={{ position: 'relative' }}>
                     <video
                         ref={userVideoRef}
                         autoPlay
