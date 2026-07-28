@@ -1431,9 +1431,9 @@ async def websocket_interview_endpoint(
                 current_duo_avatar_type = "personality" if current_q_type == "hr" else current_q_type
 
                 reaction_variant_pool = (
-                    ["interviewer-avatar-satisfied1", "interviewer-avatar-satisfied3"]
+                    ["interviewer-avatar-satisfied1", "interviewer-avatar-satisfied2"]
                     if earned_score >= 50
-                    else ["interviewer-avatar-dissatisfied3", "interviewer-avatar-dissatisfied4"]
+                    else ["interviewer-avatar-dissatisfied4"]
                 )
                 reaction_variant = random.choice(reaction_variant_pool)
                 reaction_duo_avatar_type = f"{reaction_variant}_{current_duo_avatar_type}"
