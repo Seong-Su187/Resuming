@@ -108,6 +108,7 @@ function Interview() {
     const isRecordingAnswerRef = useRef(false);
     const isStartingAnswerRecordingRef = useRef(false);
     const pendingUserAnswerRef = useRef(null);
+    const answerTimedOutRef = useRef(false);
     const developerInterviewEndingRef = useRef(false);
 
     const candidateTypingTimerRef = useRef(null);
@@ -293,8 +294,11 @@ function Interview() {
                 setAnswerTimeLeft((prev) => prev - 1);
             }, 1000);
         } else if (isRecordingAnswer && answerTimeLeft <= 0) {
+            // 시간 초과 강제 종료
+            // 🚀 채팅 텍스트로 따로 띄우지 않고, 시간 초과로 끊겼다는 신호(timed_out)를 답변 제출에 실어 보내서
+            // 백엔드가 평소 리액션 파이프라인(만족/불만족 대신 기본 아바타)으로 이 멘트를 말하도록 한다.
+            answerTimedOutRef.current = true;
             stopAnswerRecording();
-            addMessage('interviewer', '네, 시간 관계상 답변은 여기까지 듣겠습니다.', getInterviewerName(currentInterviewer, ''));
         }
         return () => clearTimeout(timer);
     }, [isRecordingAnswer, answerTimeLeft]);
@@ -2268,11 +2272,15 @@ function Interview() {
                     data.shimmer_shaken_percentage ?? 0,
                 speed_difference_wpm:
                     data.speed_difference_wpm ?? 0,
+                timed_out: answerTimedOutRef.current,
             };
 
+            answerTimedOutRef.current = false;
             setHasUserAnsweredCurrentQuestion(true);
         } catch (error) {
             console.error('답변 녹음 종료 오류:', error);
+
+            answerTimedOutRef.current = false;
 
             addMessage(
                 'system',
