@@ -1320,6 +1320,10 @@ async def websocket_interview_endpoint(
                     "speed_difference_wpm",
                     0.0,
                 )
+                timed_out = data.get(
+                    "timed_out",
+                    False,
+                )
 
                 current_q_data = questions_list[current_index]
                 current_question_text = current_q_data if isinstance(current_q_data, str) else current_q_data.get("question", "")
@@ -1405,7 +1409,11 @@ async def websocket_interview_endpoint(
                 
                 is_last_question = current_index + 1 >= total_questions
 
-                if is_last_question:
+                if timed_out:
+                    # 🚀 60초 시간 초과로 답변이 끊긴 경우: 점수/마지막 질문 여부와 무관하게
+                    # 이 멘트로 고정하고, 만족/불만족 리액션 아바타 대신 기본(질문했던) 아바타가 말한다.
+                    reaction_text = "네, 시간 관계상 답변은 여기까지 듣겠습니다."
+                elif is_last_question:
                     reaction_text = random.choice([
                         "네, 수고하셨습니다. 면접이 모두 종료되었습니다.",
                         "네, 여기까지 답변 잘 들었습니다. 면접 수고하셨습니다.",
@@ -1430,13 +1438,17 @@ async def websocket_interview_endpoint(
                 current_avatar = "middle_aged" if isinstance(current_q_data, str) else current_q_data.get("avatar", "middle_aged")
                 current_duo_avatar_type = "personality" if current_q_type == "hr" else current_q_type
 
-                reaction_variant_pool = (
-                    ["interviewer-avatar-satisfied1", "interviewer-avatar-satisfied2"]
-                    if earned_score >= 50
-                    else ["interviewer-avatar-dissatisfied4"]
-                )
-                reaction_variant = random.choice(reaction_variant_pool)
-                reaction_duo_avatar_type = f"{reaction_variant}_{current_duo_avatar_type}"
+                if timed_out:
+                    # 만족/불만족 변형 없이, 질문하던 기본 아바타 그대로 이 멘트를 말한다.
+                    reaction_duo_avatar_type = current_duo_avatar_type
+                else:
+                    reaction_variant_pool = (
+                        ["interviewer-avatar-satisfied1", "interviewer-avatar-satisfied2"]
+                        if earned_score >= 50
+                        else ["interviewer-avatar-dissatisfied4"]
+                    )
+                    reaction_variant = random.choice(reaction_variant_pool)
+                    reaction_duo_avatar_type = f"{reaction_variant}_{current_duo_avatar_type}"
 
                 growth_feedback = evaluation.get("growth_feedback", "")
                 
