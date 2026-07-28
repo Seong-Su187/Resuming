@@ -43,14 +43,8 @@ function Interview() {
         },
     ];
 
-    // 리액션(만족/불만족) 아바타 변형 선택은 이제 백엔드(interviews.py)가 담당합니다
-    // (interviewer_acknowledgment 메시지의 duo_avatar_type으로 이미 조합되어 옴).
-
     const QUESTION_AVATAR_VARIANTS = ['duo', 'main_avatar1', 'main_avatar2'];
 
-    // 질문마다 avatar_duo(기본)/main_avatar1/main_avatar2 중 하나를 매번 랜덤으로 고른다.
-    // 리액션 재생 중 미리 요청을 시작할 때와, 재생 시점에 바로 요청할 때 둘 다 이 함수로 통일해서
-    // "고른 변형"과 "실제로 요청 보낸 변형"이 어긋나지 않게 한다.
     const pickQuestionDuoAvatarType = (data) => {
         const questionVariant = getRandomVideo(QUESTION_AVATAR_VARIANTS);
         return questionVariant === 'duo'
@@ -94,17 +88,16 @@ function Interview() {
     const canvasRef = useRef(null);
     const bgImageRef = useRef(new Image());
     const selfieSegmentationRef = useRef(null);
-    const renderLoopRef = useRef(null); 
+    const renderLoopRef = useRef(null);
 
     // 시선 영점 조절용 State
-    const [calibrationPhase, setCalibrationPhase] = useState('hr_ready'); 
+    const [calibrationPhase, setCalibrationPhase] = useState('hr_ready');
     const [baselines, setBaselines] = useState({
         hrNose: 0.5, hrIris: 0.5,
         techNose: 0.5, techIris: 0.5
     });
     const [calibrationCountdown, setCalibrationCountdown] = useState(0);
 
-    // 현재 쳐다봐야 할 대상(질문 중인 면접관) 상태 관리
     const [currentInterviewer, setCurrentInterviewer] = useState('hr');
 
     const candidateDelayTimerRef = useRef(null);
@@ -132,6 +125,13 @@ function Interview() {
     const answerRecorderRef = useRef(null);
     const answerStreamRef = useRef(null);
     const answerChunksRef = useRef([]);
+
+    // 🚀 타이머 및 자동 녹음 상태 
+    const [answerTimeLeft, setAnswerTimeLeft] = useState(60);
+    const [autoRecordCountdown, setAutoRecordCountdown] = useState(null);
+
+    // 면접 모드 선택 (기술, 인성, 혼합)
+    const [interviewCategory, setInterviewCategory] = useState('mixed');
 
     const interviewerPlaybackIdRef = useRef(0);
     const isInterviewerStreamPlayingRef = useRef(false);
@@ -215,7 +215,6 @@ function Interview() {
         if (isRecordingAnswer || isStartingAnswerRecording || isProcessingAnswer) {
             return;
         }
-
         interviewModeRef.current = mode;
         setInterviewMode(mode);
     };
@@ -248,6 +247,71 @@ function Interview() {
         },
     ]);
 
+    const interviewCategoryLabel = {
+        mixed: '실전 면접',
+        technical: '기술 면접',
+        hr: '인성 면접',
+    }[interviewCategory];
+
+    const currentQuestionLabel =
+        currentInterviewer === 'tech'
+            ? '기술 질문'
+            : '인성 질문';
+
+    const candidateProgressLabel =
+        selectedCandidates.length > 0
+            ? `지원자 ${selectedCandidates.length}명과 함께 진행`
+            : '진행';
+
+    const interviewProgressLabel = (() => {
+        if (step === 'complete') {
+            return '면접 종료';
+        }
+
+        if (step !== 'answer') {
+            return `${interviewCategoryLabel} 준비 중`;
+        }
+
+        if (interviewCategory === 'mixed') {
+            return `${interviewCategoryLabel} ${currentQuestionLabel} ${candidateProgressLabel}`;
+        }
+
+        return `${interviewCategoryLabel} ${candidateProgressLabel}`;
+    })();
+
+    // 🚀 1분 타이머 강제 종료 로직 (클로저 버그 해결됨)
+    useEffect(() => {
+        let timer;
+        if (isRecordingAnswer && answerTimeLeft > 0) {
+            timer = setTimeout(() => {
+                setAnswerTimeLeft((prev) => prev - 1);
+            }, 1000);
+        } else if (isRecordingAnswer && answerTimeLeft <= 0) {
+            // 시간 초과 강제 종료
+            stopAnswerRecording();
+            addMessage('interviewer', '네, 시간 관계상 답변은 여기까지 듣겠습니다.', getInterviewerName(currentInterviewer, ''));
+        }
+        return () => clearTimeout(timer);
+    }, [isRecordingAnswer, answerTimeLeft]);
+
+    // 🚀 5초 자동 녹음 타이머 (사용자는 버튼 못 누르고 무조건 이 타이머가 끝나야 마이크 켜짐)
+    useEffect(() => {
+        let timer;
+        if (autoRecordCountdown !== null && autoRecordCountdown > 0) {
+            timer = setTimeout(() => {
+                setAutoRecordCountdown(prev => prev - 1);
+            }, 1000);
+        } else if (autoRecordCountdown === 0) {
+            // 0초가 되면 상태 초기화하고 강제 startAnswerRecording 실행
+            setAutoRecordCountdown(null);
+            if (!isRecordingAnswerRef.current && step === 'answer' && !isInterviewerSpeaking && !hasUserAnsweredCurrentQuestion) {
+                startAnswerRecording();
+            }
+        }
+        return () => clearTimeout(timer);
+    }, [autoRecordCountdown, step, isInterviewerSpeaking, hasUserAnsweredCurrentQuestion]);
+
+
     const checkCameraDevice = async () => {
         if (!navigator.mediaDevices?.enumerateDevices) {
             setHasCameraDevice(false);
@@ -274,6 +338,7 @@ function Interview() {
     const isUserTurnActive =
         isRecordingAnswer || isStartingAnswerRecording;
 
+    // 🚀 processStatus에 5초 카운트다운 안내 명시
     const processStatus = (() => {
         if (step === 'record') {
             if (isBaselineChecking) {
@@ -283,7 +348,6 @@ function Interview() {
                     description: '등록된 기본 음성 데이터가 있는지 확인하고 있습니다.',
                 };
             }
-
             if (isBaselineRecording) {
                 return {
                     type: 'recording',
@@ -291,7 +355,6 @@ function Interview() {
                     description: `가이드 문장을 읽어주세요. ${baselineSeconds}초 녹음 중입니다.`,
                 };
             }
-
             if (isBaselineSaving) {
                 return {
                     type: 'processing',
@@ -299,10 +362,8 @@ function Interview() {
                     description: '말하기 속도와 음성 특성을 측정하고 있습니다.',
                 };
             }
-
             return null;
         }
-
         if (step === 'resume') {
             if (isResumeChecking) {
                 return {
@@ -311,7 +372,6 @@ function Interview() {
                     description: '등록된 이력서가 있는지 확인하고 있습니다.',
                 };
             }
-
             if (isResumeUploading) {
                 return {
                     type: 'processing',
@@ -319,27 +379,31 @@ function Interview() {
                     description: '이력서 내용을 바탕으로 면접 질문을 생성하고 있습니다.',
                 };
             }
-
             return null;
         }
-
         if (step === 'answer') {
+            // 🚀 사용자가 5초 기다리도록 화면에 크고 명확하게 표시
+            if (autoRecordCountdown !== null && autoRecordCountdown > 0) {
+                return {
+                    type: 'processing',
+                    title: `답변을 준비하세요! (⏳ ${autoRecordCountdown}초 남음)`,
+                    description: `${autoRecordCountdown}초 뒤 마이크가 켜지고 녹음이 자동으로 시작됩니다.`,
+                };
+            }
             if (isStartingAnswerRecording) {
                 return {
                     type: 'processing',
                     title: '마이크를 연결하고 있습니다.',
-                    description: '잠시 후 답변 녹음이 시작됩니다.',
+                    description: '마이크가 연결되는 즉시 녹음이 시작됩니다.',
                 };
             }
-
             if (isRecordingAnswer) {
                 return {
                     type: 'recording',
-                    title: '답변을 녹음하고 있습니다.',
-                    description: '답변을 모두 말씀한 후 녹음 종료 버튼을 눌러주세요.',
+                    title: `답변을 녹음하고 있습니다. ⏳ ${answerTimeLeft}초 남음`,
+                    description: '답변을 완료하셨다면 화면 하단의 녹음 종료 버튼을 눌러 제출해주세요.',
                 };
             }
-
             if (isProcessingAnswer) {
                 return {
                     type: 'processing',
@@ -347,10 +411,8 @@ function Interview() {
                     description: '음성 인식과 답변 평가를 진행하고 있습니다.',
                 };
             }
-
             return null;
         }
-
         return null;
     })();
 
@@ -369,6 +431,7 @@ function Interview() {
     const getInterviewerName = (questionType, avatar) => {
         if (
             questionType === 'technical' ||
+            questionType === 'tech' ||
             avatar === 'middle_aged'
         ) {
             return '기술면접관';
@@ -502,9 +565,6 @@ function Interview() {
         playNextDefaultInterviewerVideo();
     };
 
-    // 서버에 스트리밍 요청을 보내고 도착하는 영상 조각들을 메모리에 쌓아두기만 하는 단계.
-    // 화면(video element)에는 아직 아무것도 붙이지 않아서, 리액션이 재생되는 동안 다음 질문의
-    // TTS+MuseTalk 생성을 미리 시작해두는 용도로 쓸 수 있다 (attachFetchToVideo가 나중에 붙임).
     const startAvatarFetch = (text, avatar, duoAvatarType) => {
         if (!text) {
             return null;
@@ -588,9 +648,6 @@ function Interview() {
         return handle;
     };
 
-    // startAvatarFetch가 만든 handle(이미 도착한 조각 + 앞으로 도착할 조각)을 실제 화면에
-    // 붙여서 재생한다. handle이 리액션 재생 중에 미리 시작되어 있었다면, 여기 도달했을 때
-    // 이미 상당 부분(또는 전부) 받아둔 상태라 체감 대기 시간이 줄어든다.
     const attachFetchToVideo = (handle) => {
         return new Promise((resolveOuter) => {
             const videoEl = interviewerStreamVideoRef.current;
@@ -811,8 +868,6 @@ function Interview() {
                 finish(true);
             };
 
-            // 이미 쌓여있던 조각부터 순서대로 처리하고, 처리 도중 새로 도착한 조각도
-            // 다시 이 함수를 호출해 놓치지 않고 이어서 처리한다 (draining 플래그로 중복 실행 방지).
             let idx = 0;
             let draining = false;
 
@@ -924,8 +979,6 @@ function Interview() {
 
         setIsInterviewerSpeaking(true);
 
-        // 리액션 재생 중에 미리 시작해둔 요청(prefetchHandle)이 있으면 그걸 그대로 이어붙이고,
-        // 없으면(예: 첫 질문처럼 리액션 없이 바로 재생하는 경우) 지금 새로 요청을 시작한다.
         const streamPromise = prefetchHandle
             ? attachFetchToVideo(prefetchHandle)
             : playInterviewerVideoStream(
@@ -1249,7 +1302,7 @@ function Interview() {
 
         try {
             const response = await fetch(
-                `${API_BASE_URL}/interviews/${sessionId}/use-existing-resume?user_id=${encodeURIComponent(userId)}`,
+                `${API_BASE_URL}/interviews/${sessionId}/use-existing-resume?user_id=${encodeURIComponent(userId)}&interview_mode=${interviewCategory}`,
                 {
                     method: 'POST',
                 },
@@ -1271,7 +1324,7 @@ function Interview() {
                 `기존 이력서를 바탕으로 ${data.question_count}개의 면접 질문이 생성되었습니다.`,
             );
 
-            startVisionCalibration(); 
+            startVisionCalibration();
         } catch (error) {
             console.error('기존 이력서 사용 오류:', error);
 
@@ -1620,7 +1673,7 @@ function Interview() {
             formData.append('file', file);
 
             const response = await fetch(
-                `${API_BASE_URL}/interviews/${sessionId}/upload-resume`,
+                `${API_BASE_URL}/interviews/${sessionId}/upload-resume?interview_mode=${interviewCategory}`,
                 {
                     method: 'POST',
                     body: formData,
@@ -1641,7 +1694,7 @@ function Interview() {
                 `${data.question_count}개의 맞춤 면접 질문이 생성되었습니다.`,
             );
 
-            startVisionCalibration(); 
+            startVisionCalibration();
         } catch (error) {
             console.error('이력서 업로드 오류:', error);
 
@@ -1819,12 +1872,9 @@ function Interview() {
                 console.log('WebSocket 수신:', data);
 
                 if (data.type === 'interviewer_acknowledgment') {
-                    // 🚀 프론트엔드 채팅창에 리액션 문구를 띄우지 않도록 주석 처리(의도된 동작 복구)
-                    // addMessage('interviewer', data.text, getInterviewerName(data.interviewer_type, data.avatar));
-                    
                     isReactionStreamActiveRef.current = true;
                     setIsInterviewerSpeaking(true);
-                    
+
                     playInterviewerVideoStream(
                         data.text,
                         data.avatar,
@@ -1839,7 +1889,7 @@ function Interview() {
                             }
                         }
                     });
-                    
+
                     return;
                 }
 
@@ -1873,8 +1923,6 @@ function Interview() {
                     setIsProcessingAnswer(false);
 
                     if (isReactionStreamActiveRef.current) {
-                        // 🚀 리액션이 아직 재생 중이어도, 다음 질문의 TTS+MuseTalk 생성은
-                        // 미리 시작해둔다 (화면에 붙이는 건 리액션이 끝난 뒤).
                         const prefetchHandle = startAvatarFetch(
                             data.question_text,
                             data.avatar,
@@ -1958,6 +2006,8 @@ function Interview() {
     };
 
     const startAnswerRecording = async () => {
+        setAutoRecordCountdown(null);
+
         if (
             step !== 'answer' ||
             isRecordingAnswerRef.current ||
@@ -2074,6 +2124,8 @@ function Interview() {
 
             recorder.start(1000);
 
+            // 🚀 타이머 초기화 (60초 셋업)
+            setAnswerTimeLeft(60);
             isRecordingAnswerRef.current = true;
             setIsRecordingAnswer(true);
         } catch (error) {
@@ -2201,12 +2253,6 @@ function Interview() {
             const transcribedText =
                 data.transcribed_text?.trim();
 
-            if (!transcribedText) {
-                throw new Error(
-                    '답변 음성을 인식하지 못했습니다.',
-                );
-            }
-
             addMessage('user', transcribedText);
 
             const websocket = websocketRef.current;
@@ -2325,14 +2371,14 @@ function Interview() {
             const canvasElement = canvasRef.current;
             const canvasCtx = canvasElement.getContext('2d');
 
-            bgImageRef.current.src = '/office_background.jpg'; 
+            bgImageRef.current.src = '/office_background.jpg';
 
             const selfieSegmentation = new MP_SelfieSegmentation({
                 locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/${file}`,
             });
 
             selfieSegmentation.setOptions({
-                modelSelection: 1, 
+                modelSelection: 1,
             });
 
             selfieSegmentation.onResults((results) => {
@@ -2349,7 +2395,7 @@ function Interview() {
                 if (bgImageRef.current.complete && bgImageRef.current.naturalWidth > 0) {
                     canvasCtx.drawImage(bgImageRef.current, 0, 0, canvasElement.width, canvasElement.height);
                 } else {
-                    canvasCtx.fillStyle = '#333333'; 
+                    canvasCtx.fillStyle = '#333333';
                     canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
                 }
 
@@ -2606,10 +2652,10 @@ function Interview() {
                         JSON.stringify({
                             type: 'video_frame',
                             image: base64Image,
-                            current_target: currentInterviewer, 
-                            baseline_nose: activeNose,          
+                            current_target: currentInterviewer,
+                            baseline_nose: activeNose,
                             baseline_iris: activeIris,
-                            is_recording: isRecordingAnswerRef.current, 
+                            is_recording: isRecordingAnswerRef.current,
 
                             baseline_nose_hr: baselines.hrNose,
                             baseline_iris_hr: baselines.hrIris,
@@ -2624,9 +2670,10 @@ function Interview() {
         return () => clearInterval(interval);
     }, [step, isCameraActive, baselines, currentInterviewer]);
 
+    // 전역 클린업
     useEffect(() => {
         return () => {
-            stopUserCamera(); 
+            stopUserCamera();
         };
     }, []);
 
@@ -2925,16 +2972,18 @@ function Interview() {
             }
 
             return (
-                <button
-                    type="button"
-                    className="interview-action-button resume-button"
-                    onClick={handleResumeButton}
-                    disabled={isResumeUploading}
-                >
-                    {isResumeUploading
-                        ? '이력서 분석 중...'
-                        : '이력서 업로드'}
-                </button>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <button
+                        type="button"
+                        className="interview-action-button resume-button"
+                        onClick={handleResumeButton}
+                        disabled={isResumeUploading}
+                    >
+                        {isResumeUploading
+                            ? '이력서 분석 중...'
+                            : '이력서 업로드'}
+                    </button>
+                </div>
             );
         }
 
@@ -2971,7 +3020,7 @@ function Interview() {
                         type="button"
                         className="interview-action-button record-button"
                         onClick={handleStartCalibration}
-                        style={{ backgroundColor: '#2d6a4f' }} 
+                        style={{ backgroundColor: '#2d6a4f' }}
                     >
                         <span className="action-icon">🎯</span>
                         기술 면접관(오른쪽) 영점 조절 시작
@@ -3003,30 +3052,27 @@ function Interview() {
                                 ? 'recording'
                                 : ''
                                 }`}
+                            // 🚀 녹음 중일 때만 종료(제출) 버튼으로 작동하도록 제한
                             onClick={
                                 isRecordingAnswer
                                     ? stopAnswerRecording
-                                    : startAnswerRecording
+                                    : undefined
                             }
+                            // 🚀 마이크 버튼 수동 시작 차단 (자동 녹음만 허용)
                             disabled={
-                                isInterviewerSpeaking ||
-                                isCandidateSpeaking ||
-                                isStartingAnswerRecording ||
-                                isProcessingAnswer ||
-                                (
-                                    hasUserAnsweredCurrentQuestion &&
-                                    !isRecordingAnswer
-                                )
+                                !isRecordingAnswer ||
+                                isProcessingAnswer
                             }
                         >
                             <span className="action-icon">
                                 {isRecordingAnswer
                                     ? '■'
-                                    : '🎙'}
+                                    : '⏳'}
                             </span>
 
+                            {/* 🚀 하단 보라색 버튼 텍스트 변경: 남은 시간 명시 */}
                             {isRecordingAnswer
-                                ? '답변 녹음 종료'
+                                ? `답변 녹음 종료 (${answerTimeLeft}초 남음)`
                                 : isInterviewerSpeaking
                                     ? '면접관 질문 중'
                                     : isProcessingAnswer
@@ -3037,7 +3083,9 @@ function Interview() {
                                                 ? '답변 완료'
                                                 : isCandidateSpeaking
                                                     ? `${activeCandidateAnswer?.name} 답변 중`
-                                                    : '답변 녹음 시작'}
+                                                    : autoRecordCountdown !== null && autoRecordCountdown > 0
+                                                        ? `${autoRecordCountdown}초 뒤 답변 녹음 시작`
+                                                        : '답변 대기 중...'}
                         </button>
                     )}
 
@@ -3468,33 +3516,88 @@ function Interview() {
                         aria-labelledby="camera-choice-title"
                     >
                         <div className="camera-choice-icon">
-                            📷
+                            🎙️
                         </div>
 
                         <h2 id="camera-choice-title">
-                            카메라를 사용하시겠습니까?
+                            면접 환경을 설정해주세요
                         </h2>
 
-                        {hasCameraDevice === null && (
-                            <p>
-                                연결된 카메라를 확인하고 있습니다.
-                            </p>
-                        )}
+                        <p className="camera-choice-description">
+                            연습할 면접 유형과 카메라 사용 여부를 선택해주세요.
+                        </p>
 
-                        {hasCameraDevice === true && (
-                            <p>
-                                카메라를 사용하면 면접 중 시선 방향을
-                                분석할 수 있습니다. 카메라를 사용하지
-                                않아도 면접은 진행할 수 있습니다.
-                            </p>
-                        )}
+                        <div className="initial-interview-mode-area">
+                            <strong className="initial-interview-mode-title">
+                                면접 유형
+                            </strong>
 
-                        {hasCameraDevice === false && (
-                            <p>
-                                사용할 수 있는 카메라를 찾지 못했습니다.
-                                카메라 없이 면접을 진행합니다.
-                            </p>
-                        )}
+                            <div className="initial-interview-mode-buttons">
+                                {[
+                                    {
+                                        value: 'mixed',
+                                        title: '실전 면접',
+                                        description: '기술·인성 질문을 함께 연습합니다.',
+                                    },
+                                    {
+                                        value: 'technical',
+                                        title: '기술 면접',
+                                        description: '기술 질문을 집중적으로 연습합니다.',
+                                    },
+                                    {
+                                        value: 'hr',
+                                        title: '인성 면접',
+                                        description: '인성 질문을 집중적으로 연습합니다.',
+                                    },
+                                ].map((mode) => (
+                                    <button
+                                        key={mode.value}
+                                        type="button"
+                                        className={`initial-interview-mode-button ${interviewCategory === mode.value
+                                            ? 'selected'
+                                            : ''
+                                            }`}
+                                        onClick={() =>
+                                            setInterviewCategory(mode.value)
+                                        }
+                                        aria-pressed={
+                                            interviewCategory === mode.value
+                                        }
+                                    >
+                                        <strong>{mode.title}</strong>
+                                        <span>{mode.description}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="initial-camera-choice-area">
+                            <strong className="initial-camera-choice-title">
+                                카메라 설정
+                            </strong>
+
+                            {hasCameraDevice === null && (
+                                <p>
+                                    연결된 카메라를 확인하고 있습니다.
+                                </p>
+                            )}
+
+                            {hasCameraDevice === true && (
+                                <p>
+                                    카메라를 사용하면 면접 중 시선 방향을
+                                    분석할 수 있습니다.<br />
+                                    카메라를 사용하지
+                                    않아도 면접은 진행할 수 있습니다.
+                                </p>
+                            )}
+
+                            {hasCameraDevice === false && (
+                                <p>
+                                    사용할 수 있는 카메라를 찾지 못했습니다.
+                                    카메라 없이 면접을 진행합니다.
+                                </p>
+                            )}
+                        </div>
 
                         <div className="camera-choice-buttons">
                             {hasCameraDevice === true && (
@@ -3503,7 +3606,7 @@ function Interview() {
                                     className="camera-choice-use-button"
                                     onClick={handleUseCamera}
                                 >
-                                    카메라 사용
+                                    카메라 사용 후 시작
                                 </button>
                             )}
 
@@ -3513,48 +3616,12 @@ function Interview() {
                                 onClick={handleSkipCamera}
                                 disabled={hasCameraDevice === null}
                             >
-                                {hasCameraDevice === false
-                                    ? '카메라 없이 진행'
-                                    : '사용하지 않음'}
+                                카메라 없이 시작
                             </button>
                         </div>
                     </div>
                 </div>
             )}
-
-            <div className="temporary-mode-panel">
-                <div className="temporary-mode-row">
-                    <span>진행 모드</span>
-
-                    <div className="temporary-mode-buttons">
-                        <button
-                            type="button"
-                            className={interviewMode === 'developer' ? 'active' : ''}
-                            onClick={() => changeInterviewMode('developer')}
-                            disabled={
-                                isRecordingAnswer ||
-                                isStartingAnswerRecording ||
-                                isProcessingAnswer
-                            }
-                        >
-                            개발자
-                        </button>
-
-                        <button
-                            type="button"
-                            className={interviewMode === 'user' ? 'active' : ''}
-                            onClick={() => changeInterviewMode('user')}
-                            disabled={
-                                isRecordingAnswer ||
-                                isStartingAnswerRecording ||
-                                isProcessingAnswer
-                            }
-                        >
-                            사용자
-                        </button>
-                    </div>
-                </div>
-            </div>
 
             <section className="interview-left">
                 <div className="interviewer-video-layer">
@@ -3657,7 +3724,14 @@ function Interview() {
                             }
 
                             setIsInterviewerSpeaking(false);
+
+                            const wasReaction = isReactionStreamActiveRef.current;
                             playQueuedQuestionOrRestoreDefault();
+
+                            // 🚀 면접관의 "질문"이 끝났을 때 5초 뒤 자동 녹음 시작 카운트다운 트리거 발동
+                            if (!wasReaction && step === 'answer' && !hasUserAnsweredCurrentQuestion) {
+                                setAutoRecordCountdown(5);
+                            }
                         }}
                         onError={(event) => {
                             const video = event.currentTarget;
@@ -3714,6 +3788,7 @@ function Interview() {
                         }`}
                 />
 
+                {/* 🚀 좌측 상단 배지 타이머 표시 업데이트 */}
                 <div className="interview-status">
                     <span
                         className={`status-dot ${isRecordingAnswer
@@ -3742,7 +3817,7 @@ function Interview() {
 
                     {step === 'answer' &&
                         (isRecordingAnswer
-                            ? '답변 녹음 중'
+                            ? `답변 녹음 중 (${answerTimeLeft}초 남음)`
                             : isCandidateSpeaking
                                 ? `${activeCandidateAnswer.name} 답변 중`
                                 : `${questionIndex + 1} / ${totalQuestions || '-'
@@ -3807,7 +3882,7 @@ function Interview() {
                         !processStatus && (
                             <div className="answer-recording-box">
                                 <div className="answer-recording-icon">
-                                    🎙
+                                    {isRecordingAnswer ? '🎙' : autoRecordCountdown !== null ? '⏳' : '🎙'}
                                 </div>
 
                                 <div>
@@ -3816,7 +3891,11 @@ function Interview() {
                                             ? `${activeCandidateAnswer?.name} 지원자가 답변하고 있습니다.`
                                             : hasUserAnsweredCurrentQuestion
                                                 ? '현재 질문에 대한 답변을 완료했습니다.'
-                                                : '지금 답변을 시작할 수 있습니다.'}
+                                                : isRecordingAnswer
+                                                    ? '답변 녹음 중입니다. (제한시간 1분)'
+                                                    : autoRecordCountdown !== null && autoRecordCountdown > 0
+                                                        ? `답변을 준비하세요! ${autoRecordCountdown}초 뒤에 마이크가 켜집니다.`
+                                                        : '곧 다음 진행이 시작됩니다.'}
                                     </strong>
 
                                     <p>
@@ -3824,8 +3903,19 @@ function Interview() {
                                             ? '다른 지원자의 답변이 끝나면 녹음할 수 있습니다.'
                                             : hasUserAnsweredCurrentQuestion
                                                 ? '다른 지원자들의 답변이 끝나면 다음 질문으로 넘어갑니다.'
-                                                : '5~10초 후 다른 지원자가 답변할 수 있으므로 먼저 답하려면 녹음 버튼을 눌러주세요.'}
+                                                : isRecordingAnswer
+                                                    ? '답변을 모두 말씀하신 후 아래의 녹음 종료 버튼을 눌러 제출해주세요.'
+                                                    : autoRecordCountdown !== null && autoRecordCountdown > 0
+                                                        ? '화면을 주시하고 평소 면접 톤으로 답변할 준비를 해주세요.'
+                                                        : '잠시 대기해 주세요.'}
                                     </p>
+
+                                    {/* 🚀 1분 타이머 중앙 UI 표시 */}
+                                    {isRecordingAnswer && (
+                                        <div className="answer-timer" style={{ color: answerTimeLeft <= 10 ? '#e74c3c' : '#2c3e50', fontWeight: 'bold', marginTop: '8px', fontSize: '1.05rem' }}>
+                                            남은 시간: {answerTimeLeft}초
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -3948,13 +4038,7 @@ function Interview() {
                         <div>
                             <strong>AI 면접관</strong>
 
-                            <span>
-                                {step === 'complete'
-                                    ? '면접 종료'
-                                    : selectedCandidates.length > 0
-                                        ? `지원자 ${selectedCandidates.length}명과 함께 진행 중`
-                                        : '면접 진행 중'}
-                            </span>
+                            <span>{interviewProgressLabel}</span>
                         </div>
                     </div>
 

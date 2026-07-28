@@ -23,7 +23,6 @@ from schemas import SessionCreateRequest
 from database import get_db
 from audio_analyzer import extract_voice_metrics, calculate_delta
 from filler_analyzer import count_filler_words
-from vision_analyzer import check_gaze_loss
 from llm import (
     get_embedding,
     split_resume_text,
@@ -90,10 +89,6 @@ router = APIRouter(
     tags=["Interviews"]
 )
 
-# 코랩 MuseTalk 듀오 서버는 요청 하나(GPU 추론+ffmpeg 인코딩)를 처리하는 동안
-# 이벤트 루프가 블로킹되어 동시 요청을 못 받는다. 리액션 아바타 스트림과
-# 다음 질문 프리페치 스트림이 겹쳐서 코랩에 동시에 들어가면 ngrok 게이트웨이가
-# 502를 반환하므로, 코랩으로 나가는 실제 요청만 이 lock으로 직렬화한다.
 _musetalk_colab_lock = asyncio.Lock()
 
 async def build_candidate_answers(
@@ -344,8 +339,8 @@ def create_interview_session(data: SessionCreateRequest, db: Session = Depends(g
 
 
 @log_execution_time("이력서 RAG 질문 생성 전체 프로세스 (_generate_rag_questions)")
-def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, db: Session) -> list:
-    print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작")
+def _generate_rag_questions(session_id: str, job_category: str, resume_text: str, interview_mode: str, db: Session) -> list:
+    print(f"[RAG Pipeline] 세션 {session_id} 질문 생성 파이프라인 시작 (모드: {interview_mode})")
     
     with ExecutionTimer("RAG - 청크 임베딩 및 DB 적재", session_id=session_id):
         chunks = split_resume_text(resume_text)
@@ -363,19 +358,34 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             })
         db.commit()
 
-    search_queries = [
-        ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged"),
-        ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged"),
-        ("지원 직무와 관련된 기술적 역량과 딥다이브 꼬리 질문", "technical", "middle_aged"),
-        ("이 회사에 지원하게 된 구체적인 이유와 입사 후 이뤄내고 싶은 목표 (지원 동기 및 포부)", "hr", "young"),
-        ("팀원과의 협업 경험, 갈등 해결 방식, 또는 본인만의 장단점 (인성 및 컬처핏)", "hr", "young"),
-    ]
+    if interview_mode == "technical":
+        search_queries = [
+            ("지원자의 기술 스택과 아키텍처 설계 경험", "technical", "middle_aged", "직무"),
+            ("성능 최적화 또는 기술적 문제 해결 경험", "technical", "middle_aged", "이력서"),
+            ("지원 직무의 핵심 개념에 대한 딥다이브 꼬리 질문", "technical", "middle_aged", "직무"),
+            ("기술적 갈등이 발생했을 때의 해결 방식", "technical", "middle_aged", "회사생활"),
+            ("최신 기술 트렌드 학습 및 적용 경험", "technical", "middle_aged", "이력서"),
+        ]
+    elif interview_mode == "hr":
+        search_queries = [
+            ("우리 회사에 지원하게 된 구체적인 동기", "hr", "young", "지원회사"),
+            ("입사 후 3년 뒤, 5년 뒤 본인의 커리어 목표", "hr", "young", "지원회사"),
+            ("본인의 가장 큰 장점과 치명적인 단점 한 가지", "hr", "young", "인성"),
+            ("상사나 동료와의 갈등을 원만하게 해결한 경험", "hr", "young", "회사생활"),
+        ]
+    else:
+        search_queries = [
+            ("지원자의 기술 스택과 주요 개발 경험", "technical", "middle_aged", "직무"),
+            ("지원자가 주도적으로 수행한 프로젝트와 기술적 문제 해결 과정", "technical", "middle_aged", "이력서"),
+            ("지원 직무와 관련된 기술적 역량과 딥다이브 꼬리 질문", "technical", "middle_aged", "직무"),
+            ("이 회사에 지원하게 된 구체적인 이유와 입사 후 이뤄내고 싶은 목표 (지원 동기 및 포부)", "hr", "young", "지원회사"),
+        ]
 
     generated_questions = []
     previous_question_texts = [] 
     
     with ExecutionTimer("RAG - 의도별 벡터 검색 및 LLM 질문 생성", session_id=session_id):
-        for intent, q_type, avatar in search_queries:
+        for intent, q_type, avatar, trend_category in search_queries:
             q_emb = get_embedding(intent)
             
             top_chunks = db.execute(text("""
@@ -391,10 +401,21 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             
             context = "\n\n".join([row[0] for row in top_chunks])
             
+            trend_row = db.execute(text("""
+                SELECT question_text 
+                FROM interview_trend_questions 
+                WHERE category = :cat 
+                ORDER BY RANDOM() 
+                LIMIT 1
+            """), {"cat": trend_category}).fetchone()
+            
+            trend_context = trend_row[0] if trend_row else ""
+            
             question_data = generate_single_question(
                 job_category, 
                 intent, 
                 context, 
+                trend_context,
                 q_type, 
                 avatar, 
                 previous_questions=previous_question_texts
@@ -404,6 +425,14 @@ def _generate_rag_questions(session_id: str, job_category: str, resume_text: str
             previous_question_texts.append(question_data.get("question", ""))
 
     random.shuffle(generated_questions)
+    
+    if interview_mode in ["mixed", "hr"]:
+        generated_questions.insert(0, {
+            "question": "간단하게 자기소개 부탁드립니다.",
+            "type": "hr",
+            "avatar": "young"
+        })
+
     return generated_questions
 
 
@@ -456,7 +485,7 @@ async def extract_github_content(text: str) -> str:
 
 @router.post("/{session_id}/upload-resume")
 @log_execution_time("이력서 PDF 처리 및 맞춤 질문 생성 API (upload_resume_and_generate_questions)")
-async def upload_resume_and_generate_questions(session_id: str, file: UploadFile = File(...), db: Session = Depends(get_db)):
+async def upload_resume_and_generate_questions(session_id: str, interview_mode: str = "mixed", file: UploadFile = File(...), db: Session = Depends(get_db)):
     if not file.filename.endswith('.pdf'):
         raise HTTPException(status_code=400, detail="PDF 파일만 업로드 가능합니다.")
 
@@ -481,7 +510,7 @@ async def upload_resume_and_generate_questions(session_id: str, file: UploadFile
             
         job_category = session_info[0]
 
-        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
+        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, interview_mode, db)
 
         update_query = text("""
             UPDATE interview_sessions 
@@ -548,6 +577,7 @@ def get_latest_resume(user_id: str, db: Session = Depends(get_db)):
 def use_existing_resume(
     session_id: str,
     user_id: str,
+    interview_mode: str = "mixed",
     db: Session = Depends(get_db)
 ):
     try:
@@ -593,7 +623,7 @@ def use_existing_resume(
 
         job_category = session_result[0]
 
-        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, db)
+        generated_questions = _generate_rag_questions(session_id, job_category, resume_text, interview_mode, db)
 
         update_query = text("""
             UPDATE interview_sessions
@@ -836,64 +866,143 @@ async def save_baseline_voice(
 async def process_interview_audio(
     session_id: str,
     user_id: str = Form(...),
-    audio_file: UploadFile = File(...),
-    db: Session = Depends(get_db)
+    audio_file: UploadFile | None = File(None),
+    db: Session = Depends(get_db),
 ):
     file_id = uuid.uuid4()
     temp_webm_path = f"temp_answer_{file_id}.webm"
     temp_wav_path = f"temp_answer_{file_id}.wav"
+
+    empty_result = {
+        "status": "success",
+        "transcribed_text": "",
+        "jitter_shaken_percentage": 0.0,
+        "shimmer_shaken_percentage": 0.0,
+        "speed_difference_wpm": 0.0,
+    }
+
     try:
+        if audio_file is None:
+            return empty_result
+
         audio_content = await audio_file.read()
 
         if not audio_content:
-            raise HTTPException(
-                status_code=400,
-                detail="녹음된 답변 파일이 비어 있습니다.",
-            )
+            return empty_result
 
         with open(temp_webm_path, "wb") as buffer:
             buffer.write(audio_content)
-            
-        with ExecutionTimer("면접 답변 음성 포맷 변환"):
-            convert_audio_to_wav(temp_webm_path, temp_wav_path)
-        
+
+        try:
+            with ExecutionTimer("면접 답변 음성 포맷 변환"):
+                convert_audio_to_wav(
+                    temp_webm_path,
+                    temp_wav_path,
+                )
+        except Exception as error:
+            logger.warning(
+                f"[면접 답변 음성 변환 실패] 빈값으로 처리: {error}"
+            )
+            return empty_result
+
         with ExecutionTimer("면접 답변 STT 분석"):
-            transcribed_text = process_audio_to_text(temp_wav_path)
-        
-        if not transcribed_text or not transcribed_text.strip():
-            raise HTTPException(
-                status_code=400,
-                detail="답변 음성이 감지되지 않았습니다. 조금 더 크게 다시 답변해 주세요.",
-            )
-            
-        with ExecutionTimer("면접 답변 지표 추출"):
-            current_metrics = extract_voice_metrics(
+            transcribed_text = process_audio_to_text(
                 temp_wav_path,
-                transcribed_text,
             )
-        
-        profile_query = text("SELECT baseline_jitter, baseline_shimmer, baseline_wpm FROM profiles WHERE id = CAST(:user_id AS UUID)")
-        profile = db.execute(profile_query, {"user_id": user_id}).fetchone()
-        
-        if not profile:
-            raise HTTPException(status_code=404, detail="유저 평음 데이터 없음")
-            
-        base_jitter, base_shimmer, base_wpm = profile[0], profile[1], profile[2]
-        
-        delta_jitter = calculate_delta(base_jitter, current_metrics["jitter"])
-        delta_shimmer = calculate_delta(base_shimmer, current_metrics["shimmer"])
-        delta_wpm = current_metrics["wpm"] - base_wpm
-        
+
+        if not transcribed_text or not transcribed_text.strip():
+            return empty_result
+
+        try:
+            with ExecutionTimer("면접 답변 지표 추출"):
+                current_metrics = extract_voice_metrics(
+                    temp_wav_path,
+                    transcribed_text,
+                )
+        except Exception as error:
+            logger.warning(
+                f"[면접 답변 음성 지표 분석 실패] "
+                f"텍스트만 반환하고 지표는 0으로 처리: {error}"
+            )
+
+            return {
+                "status": "success",
+                "transcribed_text": transcribed_text.strip(),
+                "jitter_shaken_percentage": 0.0,
+                "shimmer_shaken_percentage": 0.0,
+                "speed_difference_wpm": 0.0,
+            }
+
+        profile_query = text("""
+            SELECT
+                baseline_jitter,
+                baseline_shimmer,
+                baseline_wpm
+            FROM profiles
+            WHERE id = CAST(:user_id AS UUID)
+        """)
+
+        profile = db.execute(
+            profile_query,
+            {"user_id": user_id},
+        ).fetchone()
+
+        if (
+            not profile
+            or profile[0] is None
+            or profile[1] is None
+            or profile[2] is None
+        ):
+            return {
+                "status": "success",
+                "transcribed_text": transcribed_text.strip(),
+                "jitter_shaken_percentage": 0.0,
+                "shimmer_shaken_percentage": 0.0,
+                "speed_difference_wpm": 0.0,
+            }
+
+        base_jitter = float(profile[0])
+        base_shimmer = float(profile[1])
+        base_wpm = float(profile[2])
+
+        current_jitter = float(
+            current_metrics.get("jitter", 0.0)
+        )
+        current_shimmer = float(
+            current_metrics.get("shimmer", 0.0)
+        )
+        current_wpm = float(
+            current_metrics.get("wpm", 0.0)
+        )
+
+        delta_jitter = calculate_delta(
+            base_jitter,
+            current_jitter,
+        )
+        delta_shimmer = calculate_delta(
+            base_shimmer,
+            current_shimmer,
+        )
+        delta_wpm = current_wpm - base_wpm
+
         return {
             "status": "success",
-            "transcribed_text": transcribed_text,
+            "transcribed_text": transcribed_text.strip(),
             "jitter_shaken_percentage": delta_jitter,
             "shimmer_shaken_percentage": delta_shimmer,
-            "speed_difference_wpm": delta_wpm
+            "speed_difference_wpm": delta_wpm,
         }
+
+    except Exception as error:
+        logger.error(
+            f"[면접 답변 음성 처리 오류] 빈값으로 처리: {error}"
+        )
+        return empty_result
+
     finally:
         if os.path.exists(temp_webm_path):
             os.remove(temp_webm_path)
+
         if os.path.exists(temp_wav_path):
             os.remove(temp_wav_path)
 
@@ -928,16 +1037,26 @@ def get_interview_results(session_id: str, db: Session = Depends(get_db)):
         curr_date = current_session[3]
 
         logs = db.execute(
-            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count FROM qa_logs WHERE session_id = CAST(:s AS UUID) ORDER BY created_at ASC"), 
+            text("SELECT question, transcribed_text, score, feedback, jitter_shaken_percentage, shimmer_shaken_percentage, filler_word_count, gaze_loss_count, heatmap_data FROM qa_logs WHERE session_id = CAST(:s AS UUID) ORDER BY created_at ASC"), 
             {"s": session_id}
         ).fetchall()
         
         details = []
         for r in logs:
+            heatmap_data = r[8]
+            if isinstance(heatmap_data, str):
+                try:
+                    heatmap_data = json.loads(heatmap_data)
+                except:
+                    heatmap_data = []
+            elif heatmap_data is None:
+                heatmap_data = []
+
             details.append({
                 "question": r[0], "user_answer": r[1], "score": r[2], "feedback": r[3],
                 "jitter_delta": r[4], "shimmer_delta": r[5],
-                "filler_count": r[6], "gaze_loss": r[7]
+                "filler_count": r[6], "gaze_loss": r[7],
+                "heatmap_data": heatmap_data
             })
 
         history_query = text("""
@@ -1122,6 +1241,9 @@ async def websocket_interview_endpoint(
     selected_candidates: list[dict] = []
     
     current_gaze_loss_count = 0 
+    
+    # 🚀 시선 위치(좌표) 누적 배열 추가
+    gaze_coordinates = []
 
     try:
         await websocket.send_json({
@@ -1160,6 +1282,7 @@ async def websocket_interview_endpoint(
                     reaction_text="",
                 )
 
+            # 🚀 수정된 부분: analyze_frame 을 통해 1번 연산으로 loss 판정과 좌표를 동시 획득
             elif message_type == "video_frame":
                 is_recording = data.get("is_recording", False)
                 
@@ -1170,11 +1293,15 @@ async def websocket_interview_endpoint(
                     
                     if b64_image:
                         try:
-                            if check_gaze_loss(b64_image, baseline_nose, baseline_iris):
+                            from vision_analyzer import analyze_frame
+                            is_loss, gaze_pos = analyze_frame(b64_image, baseline_nose, baseline_iris)
+                            
+                            if is_loss:
                                 current_gaze_loss_count += 1
-                        except TypeError:
-                            if check_gaze_loss(b64_image):
-                                current_gaze_loss_count += 1
+                            if gaze_pos:
+                                gaze_coordinates.append(gaze_pos)
+                        except Exception as e:
+                            logger.error(f"[Vision AI Error] 프레임 분석 중 오류: {e}")
 
             elif message_type == "submit_answer":
                 user_text = data.get(
@@ -1276,11 +1403,9 @@ async def websocket_interview_endpoint(
                 )
                 accumulated_score += earned_score
                 
-                # 🚀 6. 리액션 문구 배정 (50점 기준 얼떨떨함/긍정 풀링 적용)
                 is_last_question = current_index + 1 >= total_questions
 
                 if is_last_question:
-                    # 마지막 질문에는 "다음 질문 드리겠습니다" 톤이 안 맞으므로 마무리 인사로 고정
                     reaction_text = random.choice([
                         "네, 수고하셨습니다. 면접이 모두 종료되었습니다.",
                         "네, 여기까지 답변 잘 들었습니다. 면접 수고하셨습니다.",
@@ -1293,7 +1418,6 @@ async def websocket_interview_endpoint(
                         "좋은 경험이네요. 답변 감사합니다. 다음 질문 드리겠습니다."
                     ])
                 else:
-                    # 50점 미만: 얼떨떨하고 조금 당황/부정적인 리액션
                     reaction_text = random.choice([
                         "아... 네, 알겠습니다. 다음 질문 드릴게요.",
                         "음... 네, 일단 알겠습니다. 이어서 질문드리죠.",
@@ -1302,7 +1426,6 @@ async def websocket_interview_endpoint(
                         "아... 질문의 의도와는 조금 다른 것 같지만, 알겠습니다. 다음 질문 드리죠."
                     ])
 
-                # 🚀 리액션은 방금 질문했던(반응하는) 면접관의 만족/불만족 전용 아바타가 말합니다.
                 current_q_type = "technical" if isinstance(current_q_data, str) else current_q_data.get("type", "technical")
                 current_avatar = "middle_aged" if isinstance(current_q_data, str) else current_q_data.get("avatar", "middle_aged")
                 current_duo_avatar_type = "personality" if current_q_type == "hr" else current_q_type
@@ -1325,6 +1448,7 @@ async def websocket_interview_endpoint(
                 if growth_feedback:
                     feedback_text += f"\n\n[성장 분석]: {growth_feedback}"
 
+                # 🚀 DB에 heatmap_data(좌표 배열 JSON) 적재
                 log_query = text("""
                     INSERT INTO qa_logs (
                         session_id,
@@ -1337,6 +1461,7 @@ async def websocket_interview_endpoint(
                         feedback,
                         filler_word_count,
                         gaze_loss_count,
+                        heatmap_data,
                         answer_embedding
                     )
                     VALUES (
@@ -1350,6 +1475,7 @@ async def websocket_interview_endpoint(
                         :feedback,
                         :filler,
                         :gaze,
+                        :heatmap_data,
                         CAST(:answer_embedding AS vector)
                     )
                 """)
@@ -1367,6 +1493,7 @@ async def websocket_interview_endpoint(
                         "feedback": feedback_text,
                         "filler": filler_count,
                         "gaze": current_gaze_loss_count,
+                        "heatmap_data": json.dumps(gaze_coordinates) if gaze_coordinates else None,
                         "answer_embedding": str(current_answer_emb) if current_answer_emb else None
                     },
                 )
@@ -1379,8 +1506,10 @@ async def websocket_interview_endpoint(
                     "feedback": feedback_text,
                 })
 
+                # 다음 질문 준비 시 카운트 및 좌표 배열 초기화
                 current_index += 1
                 current_gaze_loss_count = 0 
+                gaze_coordinates = []
 
                 if current_index < total_questions:
                     next_q_data = questions_list[current_index]
@@ -1429,8 +1558,6 @@ async def websocket_interview_endpoint(
                     )
                     db.commit()
                     
-                    # 🚀 reaction_text가 이미 마지막 질문용 마무리 인사(is_last_question 분기)이므로
-                    # 여기서 다시 문구를 덧붙이지 않고, 만족/불만족 아바타 변형도 그대로 이어서 씀.
                     last_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
 
                     reaction_tts_task = asyncio.create_task(

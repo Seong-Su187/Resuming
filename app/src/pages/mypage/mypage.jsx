@@ -1,4 +1,3 @@
-/* mypage.jsx */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import API_BASE_URL from '../../config/apiConfig';
@@ -411,7 +410,6 @@ function InterviewAverageChart({
     );
 }
 
-
 function MyPage() {
     const navigate = useNavigate();
 
@@ -422,6 +420,42 @@ function MyPage() {
     const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
     const [chartSessionLimit, setChartSessionLimit] = useState(3);
     const [resultView, setResultView] = useState('charts');
+
+    const HEATMAP_LABELS = ['좌상', '상단', '우상', '좌측', '중앙', '우측', '좌하', '하단', '우하'];
+
+    // 🚀 수정된 로직: 가짜 데이터를 제거하고 오직 백엔드에서 받은 실제 좌표만 계산합니다. 
+    // 데이터가 없으면 무조건 0% 로 표시됩니다.
+    const calculateHeatmapWeights = (coordinates) => {
+        // 데이터가 아예 없거나 배열 형태가 아니면 모두 0%로 반환
+        if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) {
+            return Array(9).fill(0);
+        }
+
+        const counts = Array(9).fill(0);
+        let totalCount = 0;
+
+        coordinates.forEach(coord => {
+            if (!coord || typeof coord.x !== 'number' || typeof coord.y !== 'number') return;
+            const { x, y } = coord;
+
+            // X, Y 좌표를 3x3 그리드로 매핑
+            let col = 1; // 0: 좌측, 1: 중앙, 2: 우측
+            if (x < 0.33) col = 0;
+            else if (x > 0.66) col = 2;
+
+            let row = 1; // 0: 상단, 1: 중단, 2: 하단
+            if (y < 0.33) row = 0;
+            else if (y > 0.66) row = 2;
+
+            const index = row * 3 + col;
+            counts[index] += 1;
+            totalCount += 1;
+        });
+
+        // 0.0 ~ 1.0 비율로 변환
+        if (totalCount === 0) return Array(9).fill(0);
+        return counts.map(count => count / totalCount);
+    };
 
     useEffect(() => {
         const fetchQaLogs = async () => {
@@ -449,10 +483,23 @@ function MyPage() {
 
                 const data = await response.json();
 
-                setQaLogs(data);
+                // 백엔드로부터 heatmap_data (문자열 또는 배열)를 받아오는 과정을 안전하게 처리
+                const parsedData = data.map(log => {
+                    let heatmap = [];
+                    if (log.heatmap_data) {
+                        if (typeof log.heatmap_data === 'string') {
+                            try { heatmap = JSON.parse(log.heatmap_data); } catch (e) { }
+                        } else if (Array.isArray(log.heatmap_data)) {
+                            heatmap = log.heatmap_data;
+                        }
+                    }
+                    return { ...log, heatmap_data: heatmap };
+                });
 
-                if (data.length > 0) {
-                    setSelectedSessionId(data[0].session_id);
+                setQaLogs(parsedData);
+
+                if (parsedData.length > 0) {
+                    setSelectedSessionId(parsedData[0].session_id);
                 }
             } catch (error) {
                 console.error('면접 기록 조회 실패:', error);
@@ -590,14 +637,12 @@ function MyPage() {
         });
     }, [sessions, chartSessionLimit]);
 
-    // PDF 다운로드 핸들러
     const handleDownloadPdf = async () => {
         if (!selectedSessionId || isDownloadingPdf) return;
 
         setIsDownloadingPdf(true);
 
         try {
-            // 주의: 이 엔드포인트는 백엔드의 PDF 생성 API 라우팅에 맞게 설정해야 합니다. (예: /interviews/{sessionId}/pdf)
             const response = await fetch(`${API_BASE_URL}/interviews/${selectedSessionId}/pdf`, {
                 method: 'GET',
             });
@@ -733,32 +778,6 @@ function MyPage() {
                     </aside>
 
                     <section className="mypage-result">
-                        {/*
-                        <div className="mypage-view-navigation">
-                            <button
-                                type="button"
-                                className="mypage-view-button"
-                                onClick={() => setResultView('charts')}
-                                disabled={resultView === 'charts'}
-                            >
-                                이전
-                            </button>
-
-                            <span>
-                                {resultView === 'charts' ? '그래프' : '상세 결과'}
-                            </span>
-
-                            <button
-                                type="button"
-                                className="mypage-view-button"
-                                onClick={() => setResultView('details')}
-                                disabled={resultView === 'details' || !selectedSession}
-                            >
-                                다음
-                            </button>
-                        </div>
-                         */}
-
                         {resultView === 'charts' ? (
                             <InterviewAverageChart
                                 data={interviewMetrics}
@@ -809,39 +828,143 @@ function MyPage() {
                                                 <span>질문 {index + 1}</span>
                                                 <strong>{log.score ?? '-'}점</strong>
                                             </div>
-
                                             <div className="voice-metric-list">
                                                 <div>
                                                     <span>목소리 떨림</span>
-                                                    <strong>{formatMetric(log.jitter_shaken_percentage, 2, '%')}</strong>
+
+                                                    <strong
+                                                        className={
+                                                            log.jitter_shaken_percentage > 10
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {formatMetric(
+                                                            log.jitter_shaken_percentage,
+                                                            2,
+                                                            '%',
+                                                        )}
+                                                    </strong>
+
+                                                    <small>권장 기준 ±10% 이내</small>
                                                 </div>
+
                                                 <div>
                                                     <span>음량 흔들림</span>
-                                                    <strong>{formatMetric(log.shimmer_shaken_percentage, 2, '%')}</strong>
+
+                                                    <strong
+                                                        className={
+                                                            log.shimmer_shaken_percentage > 15
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {formatMetric(
+                                                            log.shimmer_shaken_percentage,
+                                                            2,
+                                                            '%',
+                                                        )}
+                                                    </strong>
+
+                                                    <small>권장 기준 ±15% 이내</small>
                                                 </div>
+
                                                 <div>
                                                     <span>속도 변화</span>
-                                                    <strong>{formatMetric(log.speed_difference_wpm, 0, 'wpm')}</strong>
+
+                                                    <strong
+                                                        className={
+                                                            Math.abs(
+                                                                Number(log.speed_difference_wpm),
+                                                            ) > 20
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {formatMetric(
+                                                            log.speed_difference_wpm,
+                                                            0,
+                                                            'wpm',
+                                                        )}
+                                                    </strong>
+
+                                                    <small>권장 기준 ±20wpm 이내</small>
                                                 </div>
+
                                                 <div>
                                                     <span>습관어 사용</span>
-                                                    <strong>
-                                                        {log.filler_word_count !== null && log.filler_word_count !== undefined
+
+                                                    <strong
+                                                        className={
+                                                            log.filler_word_count > 2
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {log.filler_word_count !== null
+                                                            && log.filler_word_count !== undefined
                                                             ? `${log.filler_word_count}회`
                                                             : '-'}
                                                     </strong>
+
+                                                    <small>권장 기준 2회 이하</small>
                                                 </div>
+
                                                 <div>
                                                     <span>시선 이탈</span>
-                                                    <strong>
-                                                        {log.gaze_loss_count !== null && log.gaze_loss_count !== undefined
+
+                                                    <strong
+                                                        className={
+                                                            log.gaze_loss_count > 3
+                                                                ? 'metric-warning'
+                                                                : 'metric-good'
+                                                        }
+                                                    >
+                                                        {log.gaze_loss_count !== null
+                                                            && log.gaze_loss_count !== undefined
                                                             ? `${log.gaze_loss_count}회`
                                                             : '-'}
                                                     </strong>
+
+                                                    <small>권장 기준 3회 이하</small>
                                                 </div>
                                             </div>
 
-                                            <div className="answer-content">
+                                            {/* 🚀 시선 분포 히트맵 UI (실제 좌표 데이터 반영) */}
+                                            <div style={{ marginTop: '20px', padding: '20px', backgroundColor: '#f9f9fa', borderRadius: '12px', border: '1px solid #eaeaea', display: 'flex', gap: '20px', alignItems: 'center' }}>
+                                                <div>
+                                                    <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#2c3e50', fontWeight: 'bold' }}>시선 집중도 (히트맵)</h4>
+                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', width: '130px', height: '130px' }}>
+                                                        {calculateHeatmapWeights(log.heatmap_data).map((weight, idx) => (
+                                                            <div key={idx} style={{
+                                                                backgroundColor: weight > 0 ? `rgba(231, 76, 60, ${weight})` : '#fdfdfd',
+                                                                border: '1px solid #ecf0f1',
+                                                                borderRadius: '4px',
+                                                                display: 'flex',
+                                                                flexDirection: 'column',
+                                                                alignItems: 'center',
+                                                                justifyContent: 'center',
+                                                                fontSize: '11px',
+                                                                fontWeight: 'bold',
+                                                                color: weight > 0.4 ? '#ffffff' : '#555555'
+                                                            }}>
+                                                                <span style={{ fontSize: '9px', marginBottom: '2px', opacity: 0.85 }}>{HEATMAP_LABELS[idx]}</span>
+                                                                {Math.round(weight * 100)}%
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                                <div style={{ flex: 1 }}>
+                                                    <p style={{ fontSize: '14px', color: '#5a6268', lineHeight: '1.6', margin: 0 }}>
+                                                        답변하는 동안 사용자의 시선이 머문 화면 영역의 비율입니다.<br />
+                                                        <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>붉은색</span>이 진할수록 오래 머문 곳을 의미합니다.<br /><br />
+                                                        💡 <strong>정중앙(면접관의 눈)을 60% 이상</strong> 응시하며<br />
+                                                        안정적인 시선을 유지하는 것이 가장 좋습니다.
+                                                    </p>
+                                                </div>
+                                            </div>
+
+                                            <div className="answer-content" style={{ marginTop: '20px' }}>
                                                 <h3>면접 질문</h3>
                                                 <p>{log.question}</p>
                                             </div>
