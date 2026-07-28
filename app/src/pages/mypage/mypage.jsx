@@ -421,40 +421,65 @@ function MyPage() {
     const [chartSessionLimit, setChartSessionLimit] = useState(3);
     const [resultView, setResultView] = useState('charts');
 
-    const HEATMAP_LABELS = ['좌상', '상단', '우상', '좌측', '중앙', '우측', '좌하', '하단', '우하'];
+    const INTERVIEW_BACKGROUND_IMAGE = '/assets/interviewer-avatar-bg.png';
 
-    // 🚀 수정된 로직: 가짜 데이터를 제거하고 오직 백엔드에서 받은 실제 좌표만 계산합니다. 
-    // 데이터가 없으면 무조건 0% 로 표시됩니다.
-    const calculateHeatmapWeights = (coordinates) => {
-        // 데이터가 아예 없거나 배열 형태가 아니면 모두 0%로 반환
-        if (!coordinates || !Array.isArray(coordinates) || coordinates.length === 0) {
-            return Array(9).fill(0);
+    const FACE_REGION = {
+        left: 0.28,
+        top: 0.12,
+        right: 0.72,
+        bottom: 0.50,
+    };
+
+    const normalizeGazeCoordinates = (coordinates) => {
+        if (!Array.isArray(coordinates)) {
+            return [];
         }
 
-        const counts = Array(9).fill(0);
-        let totalCount = 0;
+        return coordinates
+            .filter((coord) => (
+                coord
+                && Number.isFinite(Number(coord.x))
+                && Number.isFinite(Number(coord.y))
+            ))
+            .map((coord) => ({
+                x: Math.max(0, Math.min(1, Number(coord.x))),
+                y: Math.max(0, Math.min(1, Number(coord.y))),
+            }));
+    };
 
-        coordinates.forEach(coord => {
-            if (!coord || typeof coord.x !== 'number' || typeof coord.y !== 'number') return;
-            const { x, y } = coord;
+    const calculateFaceGazeStats = (coordinates) => {
+        const normalizedCoordinates =
+            normalizeGazeCoordinates(coordinates);
 
-            // X, Y 좌표를 3x3 그리드로 매핑
-            let col = 1; // 0: 좌측, 1: 중앙, 2: 우측
-            if (x < 0.33) col = 0;
-            else if (x > 0.66) col = 2;
+        if (normalizedCoordinates.length === 0) {
+            return {
+                coordinates: [],
+                totalCount: 0,
+                faceCount: 0,
+                outsideCount: 0,
+                faceRatio: 0,
+                outsideRatio: 0,
+            };
+        }
 
-            let row = 1; // 0: 상단, 1: 중단, 2: 하단
-            if (y < 0.33) row = 0;
-            else if (y > 0.66) row = 2;
+        const faceCount = normalizedCoordinates.filter((coord) => (
+            coord.x >= FACE_REGION.left
+            && coord.x <= FACE_REGION.right
+            && coord.y >= FACE_REGION.top
+            && coord.y <= FACE_REGION.bottom
+        )).length;
 
-            const index = row * 3 + col;
-            counts[index] += 1;
-            totalCount += 1;
-        });
+        const totalCount = normalizedCoordinates.length;
+        const outsideCount = totalCount - faceCount;
 
-        // 0.0 ~ 1.0 비율로 변환
-        if (totalCount === 0) return Array(9).fill(0);
-        return counts.map(count => count / totalCount);
+        return {
+            coordinates: normalizedCoordinates,
+            totalCount,
+            faceCount,
+            outsideCount,
+            faceRatio: faceCount / totalCount,
+            outsideRatio: outsideCount / totalCount,
+        };
     };
 
     useEffect(() => {
@@ -930,39 +955,238 @@ function MyPage() {
                                                 </div>
                                             </div>
 
-                                            {/* 🚀 시선 분포 히트맵 UI (실제 좌표 데이터 반영) */}
-                                            <div style={{ marginTop: '20px', padding: '20px', backgroundColor: '#f9f9fa', borderRadius: '12px', border: '1px solid #eaeaea', display: 'flex', gap: '20px', alignItems: 'center' }}>
-                                                <div>
-                                                    <h4 style={{ margin: '0 0 12px 0', fontSize: '15px', color: '#2c3e50', fontWeight: 'bold' }}>시선 집중도 (히트맵)</h4>
-                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '4px', width: '130px', height: '130px' }}>
-                                                        {calculateHeatmapWeights(log.heatmap_data).map((weight, idx) => (
-                                                            <div key={idx} style={{
-                                                                backgroundColor: weight > 0 ? `rgba(231, 76, 60, ${weight})` : '#fdfdfd',
-                                                                border: '1px solid #ecf0f1',
-                                                                borderRadius: '4px',
-                                                                display: 'flex',
-                                                                flexDirection: 'column',
-                                                                alignItems: 'center',
-                                                                justifyContent: 'center',
-                                                                fontSize: '11px',
-                                                                fontWeight: 'bold',
-                                                                color: weight > 0.4 ? '#ffffff' : '#555555'
-                                                            }}>
-                                                                <span style={{ fontSize: '9px', marginBottom: '2px', opacity: 0.85 }}>{HEATMAP_LABELS[idx]}</span>
-                                                                {Math.round(weight * 100)}%
+                                            {/* 면접관 얼굴 영역 응시 분석 */}
+                                            {(() => {
+                                                const gazeStats =
+                                                    calculateFaceGazeStats(log.heatmap_data);
+
+                                                return (
+                                                    <div
+                                                        style={{
+                                                            marginTop: '20px',
+                                                            padding: '16px 20px',
+                                                            backgroundColor: '#f9f9fa',
+                                                            borderRadius: '12px',
+                                                            border: '1px solid #eaeaea',
+                                                            display: 'flex',
+                                                            gap: '24px',
+                                                            alignItems: 'center',
+                                                            flexWrap: 'wrap',
+                                                        }}
+                                                    >
+                                                        <div
+                                                            style={{
+                                                                flex: '1 1 280px',
+                                                            }}
+                                                        >
+                                                            <h4
+                                                                style={{
+                                                                    margin: '0 0 12px 0',
+                                                                    fontSize: '15px',
+                                                                    color: '#2c3e50',
+                                                                    fontWeight: 'bold',
+                                                                }}
+                                                            >
+                                                                면접관 응시 분석
+                                                            </h4>
+
+                                                            <p
+                                                                style={{
+                                                                    margin: '0 0 14px 0',
+                                                                    fontSize: '14px',
+                                                                    color: '#5a6268',
+                                                                    lineHeight: '1.6',
+                                                                }}
+                                                            >
+                                                                답변하는 동안 시선이 면접관의 얼굴 영역에
+                                                                머문 비율입니다.
+                                                                <br />
+                                                                붉은 박스 안의 좌표는 면접관 응시로
+                                                                집계됩니다.
+                                                            </p>
+
+                                                            <div
+                                                                style={{
+                                                                    display: 'grid',
+                                                                    gridTemplateColumns:
+                                                                        'repeat(2, minmax(120px, 1fr))',
+                                                                    gap: '10px',
+                                                                }}
+                                                            >
+                                                                <div
+                                                                    style={{
+                                                                        padding: '12px',
+                                                                        borderRadius: '9px',
+                                                                        backgroundColor: '#e9f2ed',
+                                                                        border: '1px solid #4f7d65',
+                                                                    }}
+                                                                >
+                                                                    <span
+                                                                        style={{
+                                                                            display: 'block',
+                                                                            marginBottom: '5px',
+                                                                            fontSize: '12px',
+                                                                            color: '#2f5d46',
+                                                                        }}
+                                                                    >
+                                                                        얼굴 영역
+                                                                    </span>
+
+                                                                    <strong
+                                                                        style={{
+                                                                            display: 'block',
+                                                                            fontSize: '21px',
+                                                                            color: '#2f5d46',
+                                                                        }}
+                                                                    >
+                                                                        {Math.round(
+                                                                            gazeStats.faceRatio * 100,
+                                                                        )}%
+                                                                    </strong>
+                                                                </div>
+
+                                                                <div
+                                                                    style={{
+                                                                        padding: '12px',
+                                                                        borderRadius: '9px',
+                                                                        backgroundColor: '#f1f3f5',
+                                                                        border: '1px solid #dee2e6',
+                                                                    }}
+                                                                >
+                                                                    <span
+                                                                        style={{
+                                                                            display: 'block',
+                                                                            marginBottom: '5px',
+                                                                            fontSize: '12px',
+                                                                            color: '#586069',
+                                                                        }}
+                                                                    >
+                                                                        얼굴 외 영역
+                                                                    </span>
+
+                                                                    <strong
+                                                                        style={{
+                                                                            display: 'block',
+                                                                            fontSize: '21px',
+                                                                            color: '#343a40',
+                                                                        }}
+                                                                    >
+                                                                        {Math.round(
+                                                                            gazeStats.outsideRatio * 100,
+                                                                        )}%
+                                                                    </strong>
+                                                                </div>
                                                             </div>
-                                                        ))}
+                                                        </div>
+
+                                                        <div
+                                                            style={{
+                                                                flex: '1 1 360px',
+                                                                display: 'flex',
+                                                                justifyContent: 'flex-end',
+                                                            }}
+                                                        >
+                                                            <div
+                                                                style={{
+                                                                    position: 'relative',
+                                                                    width: '100%',
+                                                                    maxWidth: '360px',
+                                                                    aspectRatio: '16 / 9',
+                                                                    overflow: 'hidden',
+                                                                    borderRadius: '10px',
+                                                                    border: '1px solid #d9dee3',
+                                                                    backgroundImage:
+                                                                        `url(${INTERVIEW_BACKGROUND_IMAGE})`,
+                                                                    backgroundSize: 'contain',
+                                                                    backgroundPosition: 'center',
+                                                                    backgroundRepeat: 'no-repeat',
+                                                                    backgroundColor: '#111111',
+                                                                    boxShadow:
+                                                                        '0 4px 14px rgba(0, 0, 0, 0.08)',
+                                                                }}
+                                                            >
+                                                                <div
+                                                                    style={{
+                                                                        position: 'absolute',
+                                                                        left: `${FACE_REGION.left * 100}%`,
+                                                                        top: `${FACE_REGION.top * 100}%`,
+                                                                        width: `${(
+                                                                            FACE_REGION.right
+                                                                            - FACE_REGION.left
+                                                                        ) * 100}%`,
+                                                                        height: `${(
+                                                                            FACE_REGION.bottom
+                                                                            - FACE_REGION.top
+                                                                        ) * 100}%`,
+                                                                        boxSizing: 'border-box',
+                                                                        border: '3px solid #2f7d4f',
+                                                                        backgroundColor:
+                                                                            'rgba(47, 125, 79, 0.08)',
+                                                                        zIndex: 2,
+                                                                        pointerEvents: 'none',
+                                                                    }}
+                                                                />
+
+                                                                {gazeStats.coordinates.map(
+                                                                    (coord, coordinateIndex) => {
+                                                                        const isFaceArea =
+                                                                            coord.x >= FACE_REGION.left
+                                                                            && coord.x <= FACE_REGION.right
+                                                                            && coord.y >= FACE_REGION.top
+                                                                            && coord.y <= FACE_REGION.bottom;
+
+                                                                        return (
+                                                                            <span
+                                                                                key={
+                                                                                    `${coord.x}-${coord.y}-${coordinateIndex}`
+                                                                                }
+                                                                                style={{
+                                                                                    position: 'absolute',
+                                                                                    left: `${coord.x * 100}%`,
+                                                                                    top: `${coord.y * 100}%`,
+                                                                                    width: '8px',
+                                                                                    height: '8px',
+                                                                                    borderRadius: '50%',
+                                                                                    transform:
+                                                                                        'translate(-50%, -50%)',
+                                                                                    backgroundColor: isFaceArea
+                                                                                        ? 'rgba(47, 125, 79, 0.58)'
+                                                                                        : 'rgba(70, 80, 90, 0.24)',
+                                                                                    boxShadow: isFaceArea
+                                                                                        ? '0 0 0 3px rgba(47, 125, 79, 0.14)'
+                                                                                        : '0 0 0 3px rgba(70, 80, 90, 0.08)',
+                                                                                    pointerEvents: 'none',
+                                                                                    zIndex: 1,
+                                                                                }}
+                                                                            />
+                                                                        );
+                                                                    },
+                                                                )}
+
+                                                                {gazeStats.totalCount === 0 && (
+                                                                    <div
+                                                                        style={{
+                                                                            position: 'absolute',
+                                                                            inset: 0,
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            justifyContent: 'center',
+                                                                            backgroundColor:
+                                                                                'rgba(0, 0, 0, 0.38)',
+                                                                            color: '#ffffff',
+                                                                            fontSize: '13px',
+                                                                            fontWeight: 600,
+                                                                            zIndex: 3,
+                                                                        }}
+                                                                    >
+                                                                        저장된 시선 좌표가 없습니다.
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                     </div>
-                                                </div>
-                                                <div style={{ flex: 1 }}>
-                                                    <p style={{ fontSize: '14px', color: '#5a6268', lineHeight: '1.6', margin: 0 }}>
-                                                        답변하는 동안 사용자의 시선이 머문 화면 영역의 비율입니다.<br />
-                                                        <span style={{ color: '#e74c3c', fontWeight: 'bold' }}>붉은색</span>이 진할수록 오래 머문 곳을 의미합니다.<br /><br />
-                                                        💡 <strong>정중앙(면접관의 눈)을 60% 이상</strong> 응시하며<br />
-                                                        안정적인 시선을 유지하는 것이 가장 좋습니다.
-                                                    </p>
-                                                </div>
-                                            </div>
+                                                );
+                                            })()}
 
                                             <div className="answer-content" style={{ marginTop: '20px' }}>
                                                 <h3>면접 질문</h3>
