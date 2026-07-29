@@ -1311,6 +1311,30 @@ async def websocket_interview_endpoint(
                         except Exception as e:
                             logger.error(f"[Vision AI Error] 프레임 분석 중 오류: {e}")
 
+            elif message_type == "answer_timeout":
+                # 🚀 60초 답변 시간 초과: STT/채점(submit_answer)을 기다리지 않고 곧바로
+                # 고정 멘트를 질문하던 기본 아바타가 말하게 한다. 점수와 무관한 고정 멘트라
+                # 평가 결과를 기다릴 이유가 없어서, submit_answer보다 먼저 이 신호로 반응을 시작한다.
+                timeout_q_data = questions_list[current_index]
+                timeout_q_type = "technical" if isinstance(timeout_q_data, str) else timeout_q_data.get("type", "technical")
+                timeout_avatar = "middle_aged" if isinstance(timeout_q_data, str) else timeout_q_data.get("avatar", "middle_aged")
+                timeout_duo_avatar_type = "personality" if timeout_q_type == "hr" else timeout_q_type
+
+                timeout_reaction_text = "네, 시간 관계상 답변은 여기까지 듣겠습니다."
+                if current_index + 1 >= total_questions:
+                    # 시간 초과가 하필 마지막 질문에서 발생한 경우, 끊겼다는 멘트로만 끝내지 않고 마무리 인사를 붙인다.
+                    timeout_reaction_text += " 면접 수고하셨습니다."
+                timeout_voice = AVATAR_VOICE_MAP.get(timeout_avatar, "onyx")
+                timeout_tts_base64 = await asyncio.create_task(
+                    _generate_tts_fallback_base64(timeout_reaction_text, timeout_voice)
+                )
+
+                await websocket.send_json({
+                    "type": "interviewer_acknowledgment", "text": timeout_reaction_text, "avatar": timeout_avatar,
+                    "interviewer_type": timeout_q_type, "duo_avatar_type": timeout_duo_avatar_type,
+                    "tts_audio_base64": timeout_tts_base64
+                })
+
             elif message_type == "submit_answer":
                 user_text = data.get(
                     "transcribed_text",
@@ -1468,32 +1492,43 @@ async def websocket_interview_endpoint(
 
                 if current_index < total_questions:
                     next_q_data = questions_list[current_index]
-                    reaction_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
-                    reaction_tts_base64 = await asyncio.create_task(_generate_tts_fallback_base64(reaction_text, reaction_voice))
 
-                    await websocket.send_json({
-                        "type": "interviewer_acknowledgment", "text": reaction_text, "avatar": current_avatar,
-                        "interviewer_type": current_q_type, "duo_avatar_type": reaction_duo_avatar_type,
-                        "tts_audio_base64": reaction_tts_base64
-                    })
+                    if not timed_out:
+                        # timed_out인 경우 answer_timeout 처리에서 이미 이 멘트를 아바타가 말했으므로 재전송하지 않는다.
+                        reaction_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
+                        reaction_tts_base64 = await asyncio.create_task(_generate_tts_fallback_base64(reaction_text, reaction_voice))
 
-                    await asyncio.sleep(2.5)
+                        await websocket.send_json({
+                            "type": "interviewer_acknowledgment", "text": reaction_text, "avatar": current_avatar,
+                            "interviewer_type": current_q_type, "duo_avatar_type": reaction_duo_avatar_type,
+                            "tts_audio_base64": reaction_tts_base64
+                        })
+
+                        await asyncio.sleep(2.5)
+
                     await send_next_question(
-                        websocket, next_q_data, current_index + 1, total_questions, selected_candidates, reaction_text="", 
+                        websocket, next_q_data, current_index + 1, total_questions, selected_candidates, reaction_text="",
                     )
                 else:
                     final_avg_score = int(accumulated_score / total_questions)
                     db.execute(text("UPDATE interview_sessions SET overall_score = :score WHERE id = CAST(:id AS UUID)"), {"score": final_avg_score, "id": session_id})
                     db.commit()
-                    
-                    last_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
-                    reaction_tts_base64 = await asyncio.create_task(_generate_tts_fallback_base64(reaction_text, last_voice))
 
-                    await websocket.send_json({
-                        "type": "interviewer_acknowledgment", "text": reaction_text, "avatar": current_avatar,
-                        "interviewer_type": current_q_type, "duo_avatar_type": reaction_duo_avatar_type, "tts_audio_base64": reaction_tts_base64
-                    })
+                    if not timed_out:
+                        # timed_out인 경우 answer_timeout 처리에서 이미 이 멘트를 아바타가 말했으므로 재전송하지 않는다.
+                        last_voice = AVATAR_VOICE_MAP.get(current_avatar, "onyx")
+                        reaction_tts_base64 = await asyncio.create_task(_generate_tts_fallback_base64(reaction_text, last_voice))
+
+                        await websocket.send_json({
+                            "type": "interviewer_acknowledgment", "text": reaction_text, "avatar": current_avatar,
+                            "interviewer_type": current_q_type, "duo_avatar_type": reaction_duo_avatar_type, "tts_audio_base64": reaction_tts_base64
+                        })
+
+                    # interview_completed는 프론트에서 진행 중인 리액션 재생을 기다려주지 않고 바로 화면을
+                    # 전환하므로(next_question과 달리 큐잉 로직이 없음), timed_out으로 먼저 재생을 시작한
+                    # 경우에도 동일하게 대기해서 마지막 멘트가 잘리지 않게 한다.
                     await asyncio.sleep(3.5)
+
                     await websocket.send_json({"type": "interview_completed"})
 
     except WebSocketDisconnect:

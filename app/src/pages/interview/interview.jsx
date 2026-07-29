@@ -298,8 +298,17 @@ function Interview() {
             }, 1000);
         } else if (isRecordingAnswer && answerTimeLeft <= 0) {
             // 시간 초과 강제 종료
-            // 🚀 채팅 텍스트로 따로 띄우지 않고, 시간 초과로 끊겼다는 신호(timed_out)를 답변 제출에 실어 보내서
-            // 백엔드가 평소 리액션 파이프라인(만족/불만족 대신 기본 아바타)으로 이 멘트를 말하도록 한다.
+            // 🚀 채팅 텍스트로 따로 띄우지 않고, STT/채점 결과를 기다리지 않은 채 곧바로
+            // answer_timeout 신호를 보내 백엔드가 고정 멘트를 기본 아바타로 먼저 말하게 한다.
+            // STT/채점(submit_answer, timed_out 플래그 포함)은 뒤이어 별도로 병렬 진행된다.
+            const websocket = websocketRef.current;
+
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(
+                    JSON.stringify({ type: 'answer_timeout' }),
+                );
+            }
+
             answerTimedOutRef.current = true;
             stopAnswerRecording();
         }
@@ -1043,7 +1052,12 @@ function Interview() {
             if (queued) {
                 pendingQuestionAfterReactionRef.current = null;
 
-                restoreDefaultInterviewerVideo();
+                // 🚀 다음 질문이 이미 준비되어 있으면 곧바로 이어서 재생한다.
+                // restoreDefaultInterviewerVideo()를 거치면 그 안의 playNextDefaultInterviewerVideo()가
+                // 랜덤 대기 영상을 잠깐 재생 시작해버려서, 질문 스트림이 뜨기 직전에 상관없는 동작이
+                // 한 번 반짝였다 사라지는 문제가 있었다. playQuestionStream -> attachFetchToVideo가
+                // 스트림 video 엘리먼트 상태(가시성/abort/objectURL 등)를 자체적으로 다시 초기화해주므로
+                // 여기서 restoreDefaultInterviewerVideo()를 거칠 필요가 없다.
                 playQuestionStream(queued.data, queued.prefetchHandle);
                 return;
             }
@@ -2403,7 +2417,9 @@ function Interview() {
                 canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
 
                 canvasCtx.globalCompositeOperation = 'source-in';
-                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+                //canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+                canvasCtx.fillStyle = '#000000';
+                canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height,);
 
                 canvasCtx.globalCompositeOperation = 'destination-over';
                 if (bgImageRef.current.complete && bgImageRef.current.naturalWidth > 0) {

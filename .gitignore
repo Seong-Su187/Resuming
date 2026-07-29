@@ -24,3 +24,7 @@ Thumbs.db
 
 #Log files
 *.log
+
+# Backend transient temp files (생성 즉시 처리 후 finally에서 삭제되는 임시 파일들)
+backend/temp_stream_tts_*.mp3
+backend/temp_baseline_*.webm
