@@ -857,9 +857,10 @@ function MyPage() {
                                                 <div>
                                                     <span>목소리 떨림</span>
 
+                                                    {/* 🚀 Jitter 절댓값 적용 완료 */}
                                                     <strong
                                                         className={
-                                                            log.jitter_shaken_percentage > 10
+                                                            Math.abs(Number(log.jitter_shaken_percentage)) > 10
                                                                 ? 'metric-warning'
                                                                 : 'metric-good'
                                                         }
@@ -877,9 +878,10 @@ function MyPage() {
                                                 <div>
                                                     <span>음량 흔들림</span>
 
+                                                    {/* 🚀 Shimmer 절댓값 적용 완료 */}
                                                     <strong
                                                         className={
-                                                            log.shimmer_shaken_percentage > 15
+                                                            Math.abs(Number(log.shimmer_shaken_percentage)) > 15
                                                                 ? 'metric-warning'
                                                                 : 'metric-good'
                                                         }

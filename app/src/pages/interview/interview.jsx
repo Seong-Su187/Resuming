@@ -1052,7 +1052,12 @@ function Interview() {
             if (queued) {
                 pendingQuestionAfterReactionRef.current = null;
 
-                restoreDefaultInterviewerVideo();
+                // 🚀 다음 질문이 이미 준비되어 있으면 곧바로 이어서 재생한다.
+                // restoreDefaultInterviewerVideo()를 거치면 그 안의 playNextDefaultInterviewerVideo()가
+                // 랜덤 대기 영상을 잠깐 재생 시작해버려서, 질문 스트림이 뜨기 직전에 상관없는 동작이
+                // 한 번 반짝였다 사라지는 문제가 있었다. playQuestionStream -> attachFetchToVideo가
+                // 스트림 video 엘리먼트 상태(가시성/abort/objectURL 등)를 자체적으로 다시 초기화해주므로
+                // 여기서 restoreDefaultInterviewerVideo()를 거칠 필요가 없다.
                 playQuestionStream(queued.data, queued.prefetchHandle);
                 return;
             }
@@ -2412,7 +2417,9 @@ function Interview() {
                 canvasCtx.drawImage(results.segmentationMask, 0, 0, canvasElement.width, canvasElement.height);
 
                 canvasCtx.globalCompositeOperation = 'source-in';
-                canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+                //canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+                canvasCtx.fillStyle = '#000000';
+                canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height,);
 
                 canvasCtx.globalCompositeOperation = 'destination-over';
                 if (bgImageRef.current.complete && bgImageRef.current.naturalWidth > 0) {
