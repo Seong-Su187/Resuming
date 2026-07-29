@@ -135,8 +135,11 @@ function Interview() {
     const [autoRecordCountdown, setAutoRecordCountdown] = useState(null);
 
     // 실시간 시선 트래킹용 State
-    const [realtimeGaze, setRealtimeGaze] = useState({ x: 0.5, y: 0.5 });
+    const [realtimeGaze, setRealtimeGaze] = useState({ x: 0.45, y: 0.25 });
     const [isGazeLoss, setIsGazeLoss] = useState(false);
+    
+    // 🚀 포인터 On/Off 토글 State 추가
+    const [showGazePointer, setShowGazePointer] = useState(true);
 
     // 면접 모드 선택 (기술, 인성, 혼합)
     const [interviewCategory, setInterviewCategory] = useState('mixed');
@@ -3651,14 +3654,14 @@ function Interview() {
                         />
                     ))}
 
-                    {/* 🚀 파란색 점선 박스의 위치를 25% (Y) 로 최종 수정 */}
+                    {/* 🚀 파란색 점선 박스의 위치를 45% (X), 25% (Y) 로 최종 수정 */}
                     {step === 'calibrate_vision' && (
                         <div
                             className="calibration-target-box"
                             style={{ 
                                 position: 'absolute',
                                 left: '45%', 
-                                top: '25%',  // 🚀 요청하신 25% 로 수정
+                                top: '25%',  
                                 transform: 'translate(-50%, -50%)',
                                 width: '180px',
                                 height: '240px',
@@ -3746,7 +3749,7 @@ function Interview() {
                     />
 
                     {/* 🚀 실시간 시선 포인터 */}
-                    {isRecordingAnswer && isCameraActive && (
+                    {isRecordingAnswer && isCameraActive && showGazePointer && (
                         <div style={{
                             position: 'absolute',
                             top: `${realtimeGaze.y * 100}%`,
@@ -4011,6 +4014,36 @@ function Interview() {
                             <span>카메라가 꺼져 있습니다.</span>
                         </div>
                     )}
+
+                    {/* 🚀 시선 포인터 On/Off 토글 버튼 */}
+                    <button
+                        type="button"
+                        onClick={() => setShowGazePointer(prev => !prev)}
+                        disabled={!isCameraActive}
+                        style={{
+                            position: 'absolute',
+                            top: '12px',
+                            right: '12px',
+                            width: '36px',
+                            height: '36px',
+                            borderRadius: '50%',
+                            border: 'none',
+                            backgroundColor: showGazePointer ? 'rgba(52, 199, 89, 0.8)' : 'rgba(255, 69, 58, 0.8)',
+                            color: 'white',
+                            cursor: isCameraActive ? 'pointer' : 'not-allowed',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '16px',
+                            zIndex: 10,
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
+                            opacity: isCameraActive ? 1 : 0.5,
+                            transition: 'background-color 0.2s'
+                        }}
+                        title={showGazePointer ? "시선 포인터 끄기" : "시선 포인터 켜기"}
+                    >
+                        {showGazePointer ? '🎯' : '🙈'}
+                    </button>
 
                     <button
                         type="button"
