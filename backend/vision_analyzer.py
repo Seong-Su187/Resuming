@@ -96,59 +96,74 @@ def apply_deadzone(val, threshold):
 
 def analyze_frame(base64_image: str, bn_x: float, bi_x: float, bn_y: float, bi_y: float) -> tuple[bool, dict]:
     """ 
-    [🚀 최종 솔루션] X축 비대칭 스케일링 + Y축 과민감도 억제 매핑 
+    [🚀 최종 솔루션] 상하좌우 완벽한 '십자 비대칭(Cross-Asymmetric)' 스케일링 적용 
     """
     global _last_gaze_pos
     
-    # 에러 시 돌아가는 기본 좌표를 파란 박스 위치로 통일
-    if not base64_image: return False, {"x": 0.45, "y": 0.25}
+    # 에러가 났을 때 돌아갈 기본 위치 (과거 위치 유지 or 기준점 복귀)
+    fallback_pos = _last_gaze_pos if _last_gaze_pos else {"x": 0.45, "y": 0.25}
+
+    if not base64_image: return False, fallback_pos
     try:
         if "," in base64_image: base64_image = base64_image.split(",")[1]
         image_data = base64.b64decode(base64_image)
         np_arr = np.frombuffer(image_data, np.uint8)
         image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-        if image is None: return False, {"x": 0.45, "y": 0.25}
+        if image is None: return False, fallback_pos
 
         results = face_mesh.process(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-        if not results.multi_face_landmarks: return True, {"x": 0.45, "y": 0.25}
+        
+        # 얼굴을 놓쳤을 때 이탈(True)로 잡지 않고 정상(False) + 이전 좌표 유지
+        if not results.multi_face_landmarks: 
+            return False, fallback_pos
 
         nx, ix, ny, iy = extract_ratios_from_landmarks(results.multi_face_landmarks[0])
 
         # --- 1. 편차 계산 ---
         diff_nx = apply_deadzone(nx - bn_x, 0.002)
         diff_ix = apply_deadzone(ix - bi_x, 0.002)
-        
-        # Y축 노이즈 방지를 위해 데드존 소폭 상향
-        diff_ny = apply_deadzone(ny - bn_y, 0.005)
-        diff_iy = apply_deadzone(iy - bi_y, 0.005)
+        diff_ny = apply_deadzone(ny - bn_y, 0.002)
+        diff_iy = apply_deadzone(iy - bi_y, 0.002)
 
-        # --- 2. X축 비대칭 부스터 가중치 적용 ---
+        # --- 2. X축 비대칭 가중치 (기존 동일) ---
+        # 영점 0.45 기준. 오른쪽(0.72)이 더 멀기 때문에 가중치가 큼
         if diff_nx < 0:
             weight_nx = 18.0 
         else:
             weight_nx = 8.0  
 
         if diff_ix < 0:
-            weight_ix = 20.0  # 🚀 오른쪽 눈동자 가중치를 25.0에서 20.0으로 조정
+            weight_ix = 20.0  
         else:
             weight_ix = 12.0 
 
-        # 매핑 기준점 (X: 0.45, Y: 0.25)
-        mapped_x = 0.45 - (diff_nx * weight_nx) - (diff_ix * weight_ix)
-        
-        # 눈동자 상하 떨림을 억제하기 위해 눈동자 가중치(iy)를 2.0으로 깎고, 고개 가중치(ny)를 4.0으로 고정합니다.
-        mapped_y = 0.25 + (diff_ny * 4.0) + (diff_iy * 2.0)
+        # --- 3. Y축 비대칭 가중치 🚀 (신규 적용) ---
+        # 영점 0.25 기준. 바닥(1.0)이 천장(0.0)보다 3배 멀기 때문에 아래를 볼 때 가중치 폭발
+        # diff_ny > 0 이면 아래쪽(바닥)을 쳐다보고 있다는 뜻입니다.
+        if diff_ny > 0:
+            weight_ny = 15.0  # 바닥을 볼 때 고개 가중치 대폭 증가
+        else:
+            weight_ny = 6.0   # 천장을 볼 때는 짧게 유지
 
-        # --- 3. 클램핑 ---
+        if diff_iy > 0:
+            weight_iy = 35.0  # 바닥을 볼 때 눈동자 가중치 초강력 부스터
+        else:
+            weight_iy = 15.0  # 천장을 볼 때는 짧게 유지
+
+        # --- 4. 화면 좌표 매핑 ---
+        mapped_x = 0.45 - (diff_nx * weight_nx) - (diff_ix * weight_ix)
+        mapped_y = 0.25 + (diff_ny * weight_ny) + (diff_iy * weight_iy)
+
+        # --- 5. 클램핑 ---
         target_x = max(0.0, min(1.0, mapped_x))
         target_y = max(0.0, min(1.0, mapped_y))
 
-        # --- 4. 시선 이탈 판정 ---
+        # --- 6. 시선 이탈 판정 ---
         is_loss = False
         if target_x < 0.10 or target_x > 0.90 or target_y < 0.10 or target_y > 0.90:
             is_loss = True
 
-        # --- 5. 카메라 짐벌 스무딩 (EMA 필터) ---
+        # --- 7. 카메라 짐벌 스무딩 (EMA 필터) ---
         if _last_gaze_pos is None:
             _last_gaze_pos = {"x": target_x, "y": target_y}
         else:
@@ -161,4 +176,4 @@ def analyze_frame(base64_image: str, bn_x: float, bi_x: float, bn_y: float, bi_y
 
     except Exception as e:
         print(f"[Vision Analyzer] Analyze Error: {e}")
-        return False, {"x": 0.45, "y": 0.25}
+        return False, fallback_pos
