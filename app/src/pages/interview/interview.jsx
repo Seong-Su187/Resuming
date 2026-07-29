@@ -295,8 +295,17 @@ function Interview() {
             }, 1000);
         } else if (isRecordingAnswer && answerTimeLeft <= 0) {
             // 시간 초과 강제 종료
-            // 🚀 채팅 텍스트로 따로 띄우지 않고, 시간 초과로 끊겼다는 신호(timed_out)를 답변 제출에 실어 보내서
-            // 백엔드가 평소 리액션 파이프라인(만족/불만족 대신 기본 아바타)으로 이 멘트를 말하도록 한다.
+            // 🚀 채팅 텍스트로 따로 띄우지 않고, STT/채점 결과를 기다리지 않은 채 곧바로
+            // answer_timeout 신호를 보내 백엔드가 고정 멘트를 기본 아바타로 먼저 말하게 한다.
+            // STT/채점(submit_answer, timed_out 플래그 포함)은 뒤이어 별도로 병렬 진행된다.
+            const websocket = websocketRef.current;
+
+            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                websocket.send(
+                    JSON.stringify({ type: 'answer_timeout' }),
+                );
+            }
+
             answerTimedOutRef.current = true;
             stopAnswerRecording();
         }
