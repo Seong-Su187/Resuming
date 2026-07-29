@@ -1296,7 +1296,11 @@ async def websocket_interview_endpoint(
                             if is_loss:
                                 current_gaze_loss_count += 1
                             if gaze_pos:
-                                gaze_coordinates.append(gaze_pos)
+                                gaze_coordinates.append({
+                                    "x": gaze_pos["x"],
+                                    "y": gaze_pos["y"],
+                                    "is_loss": is_loss
+                                })
                                 
                                 await websocket.send_json({
                                     "type": "realtime_gaze",
