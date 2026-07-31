@@ -9,7 +9,7 @@ import audioop
 from openai import OpenAI
 from dotenv import load_dotenv
 
-from logger_config import log_execution_time
+from logger_config import log_execution_time, logger
 
 load_dotenv()
 
@@ -101,8 +101,10 @@ def generate_single_question(job_category: str, intent: str, context: str, trend
             response_format={"type": "json_object"}
         )
         
-        return json.loads(response.choices[0].message.content)
-        
+        result = json.loads(response.choices[0].message.content)
+        logger.info(f"[LLM 생성 질문] {result.get('question', '')}")
+        return result
+
     except Exception as e:
         print(f"[LLM Error] 질문 생성 실패: {str(e)}")
         return {
@@ -175,6 +177,7 @@ def evaluate_answer_with_llm(question: str, user_answer: str, ideal_answer: str 
         )
         
         result_json = json.loads(response.choices[0].message.content)
+        logger.info(f"[LLM 채점 결과] {result_json.get('score', '')}점 - {result_json.get('feedback', '')}")
         return result_json
 
     except Exception as e:
@@ -383,8 +386,7 @@ def process_audio_to_text(audio_file_path: str) -> str:
             )
             return ""
 
-        print(f"[STT 원본] {text}")
-        print(f"[STT 정제 결과] {cleaned_text}")
+        logger.info(f"[STT 정제 결과] {cleaned_text}")
 
         return cleaned_text
 
@@ -412,6 +414,7 @@ AVATAR_VOICE_MAP = {
 
 @log_execution_time("OpenAI TTS 음성 합성 요청 (generate_text_to_speech)")
 def generate_text_to_speech(text: str, output_path: str, voice: str = "onyx"):
+    logger.info(f"[TTS 입력 문장] {text}")
     try:
         response = client.audio.speech.create(
             model="tts-1",

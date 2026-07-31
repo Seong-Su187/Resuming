@@ -150,6 +150,7 @@ function Interview() {
     const pendingInterviewerMessageRef = useRef(null);
     const isReactionStreamActiveRef = useRef(false);
     const pendingQuestionAfterReactionRef = useRef(null);
+    const defaultVideoFallbackTimerRef = useRef(null);
 
     const [userId, setUserId] = useState('');
     const [step, setStep] = useState('loading');
@@ -556,6 +557,11 @@ function Interview() {
     const restoreDefaultInterviewerVideo = () => {
         const streamVideo =
             interviewerStreamVideoRef.current;
+
+        if (defaultVideoFallbackTimerRef.current) {
+            clearTimeout(defaultVideoFallbackTimerRef.current);
+            defaultVideoFallbackTimerRef.current = null;
+        }
 
         isInterviewerStreamPlayingRef.current = false;
         setIsInterviewerStreamVisible(false);
@@ -1058,6 +1064,19 @@ function Interview() {
                 // 한 번 반짝였다 사라지는 문제가 있었다. playQuestionStream -> attachFetchToVideo가
                 // 스트림 video 엘리먼트 상태(가시성/abort/objectURL 등)를 자체적으로 다시 초기화해주므로
                 // 여기서 restoreDefaultInterviewerVideo()를 거칠 필요가 없다.
+                //
+                // 다만 다음 질문 스트림이 뜨기까지 시간이 걸리는 경우, 그 사이 화면이 리액션의 마지막
+                // 프레임에서 멈춘 채로 보일 수 있다. 짧은 유예시간(400ms) 안에 다음 질문이 재생을
+                // 시작하면(onPlaying에서 타이머를 취소) 아무 것도 안 뜨고 매끄럽게 넘어가고, 그 안에
+                // 재생이 시작되지 않으면 그때 대기 영상을 띄워서 화면이 멈춰 보이지 않게 한다.
+                if (defaultVideoFallbackTimerRef.current) {
+                    clearTimeout(defaultVideoFallbackTimerRef.current);
+                }
+                defaultVideoFallbackTimerRef.current = setTimeout(() => {
+                    defaultVideoFallbackTimerRef.current = null;
+                    playNextDefaultInterviewerVideo();
+                }, 400);
+
                 playQuestionStream(queued.data, queued.prefetchHandle);
                 return;
             }
@@ -3711,6 +3730,12 @@ function Interview() {
                         playsInline
                         preload="auto"
                         onPlaying={() => {
+                            // 🚀 다음 질문 스트림이 제때 재생을 시작했으니, 대기 영상 안전장치 타이머는 취소한다.
+                            if (defaultVideoFallbackTimerRef.current) {
+                                clearTimeout(defaultVideoFallbackTimerRef.current);
+                                defaultVideoFallbackTimerRef.current = null;
+                            }
+
                             setIsInterviewerStreamVisible(true);
 
                             const pendingMessage =

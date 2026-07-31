@@ -1,0 +1,16 @@
+{
+  "total_sessions": 615,
+  "completed_sessions": 615,
+  "incomplete_sessions": 0,
+  "completion_rate": 100.0,
+  "target": 80.0,
+  "by_category": [
+    {
+      "job_category": "프론트엔드 개발자",
+      "total_sessions": 615,
+      "completed_sessions": 615,
+      "completion_rate": 100.0
+    }
+  ],
+  "비고": "완료 판정 기준은 interview_sessions.overall_score IS NOT NULL - 이 값은 마지막 질문까지 답변을 제출해야만 채워지므로(submit_answer의 마지막 질문 분기), 중간 이탈 세션과 정확히 구분된다. 별도의 세션 status 컬럼 없이도 신뢰 가능한 집계."
+}

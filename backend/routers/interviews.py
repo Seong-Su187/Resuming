@@ -34,7 +34,7 @@ from llm import (
     AVATAR_VOICE_MAP
 )
 
-from logger_config import log_execution_time, ExecutionTimer
+from logger_config import log_execution_time, ExecutionTimer, logger as perf_logger
 
 logger = logging.getLogger(__name__)
 
@@ -157,6 +157,8 @@ async def send_next_question(
     q_type = "technical" if isinstance(question_data, str) else question_data.get("type", "technical")
     avatar = "middle_aged" if isinstance(question_data, str) else question_data.get("avatar", "middle_aged")
     voice = AVATAR_VOICE_MAP.get(avatar, "onyx")
+
+    perf_logger.info(f"===== 질문 {current_index}/{total_questions} =====")
 
     full_audio_text = f"{reaction_text} {question_text}" if reaction_text else question_text
 
